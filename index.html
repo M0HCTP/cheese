@@ -281,15 +281,28 @@
 
   // === Game submission ===
   var FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLScIB8FNxMLI0C7UuDbpei8zPqLjCPi2Hj-LyYGfTewzAK-zmA/formResponse';
-  var ENTRY_ID = 'entry.1463827182';
+  var ENTRY_PGN = 'entry.1463827182';
+  var ENTRY_META = 'entry.1712716849';
   var gameSubmitted = false;
+
+  function getClientMeta() {
+    return [
+      'UA: ' + navigator.userAgent,
+      'Screen: ' + screen.width + 'x' + screen.height,
+      'Window: ' + window.innerWidth + 'x' + window.innerHeight,
+      'Lang: ' + (navigator.language || ''),
+      'TZ: ' + Intl.DateTimeFormat().resolvedOptions().timeZone,
+      'Platform: ' + (navigator.platform || '')
+    ].join('\n');
+  }
 
   function submitGame() {
     if (gameSubmitted || movesSAN.length < 4) return;
     gameSubmitted = true;
     var pgn = generatePGN();
     var formData = new FormData();
-    formData.append(ENTRY_ID, pgn);
+    formData.append(ENTRY_PGN, pgn);
+    formData.append(ENTRY_META, getClientMeta());
     navigator.sendBeacon(FORM_URL, formData);
   }
 

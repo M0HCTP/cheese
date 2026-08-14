@@ -117,7 +117,7 @@
     #progress-text { font-size: 0.72rem; color: #777; white-space: nowrap; }
 
     #analysis-summary {
-      font-size: 0.8rem; color: #888; text-align: center; min-height: 1em;
+      font-size: 0.8rem; color: #888; text-align: center; min-height: 1em; white-space: pre-line;
     }
 
     /* Overlays */
@@ -855,7 +855,8 @@
     document.getElementById('analysis-progress').classList.remove('visible');
     document.getElementById('analyze-btn').disabled = false;
 
-    var counts = {inaccuracy: 0, mistake: 0, blunder: 0};
+    var wCounts = {inaccuracy: 0, mistake: 0, blunder: 0};
+    var bCounts = {inaccuracy: 0, mistake: 0, blunder: 0};
 
     for (var i = 0; i < movesSAN.length; i++) {
       if (i + 1 >= scores.length) break;
@@ -870,6 +871,7 @@
       var whiteEvalBefore = (turn === 'w') ? scores[i] : -scores[i];
       var whiteEvalAfter = (turn === 'w') ? -scores[i + 1] : scores[i + 1];
 
+      var counts = turn === 'w' ? wCounts : bCounts;
       var severity, nag;
       if (evalLoss >= threshBlunder) { severity = 'blunder'; nag = '??'; counts.blunder++; }
       else if (evalLoss >= threshMistake) { severity = 'mistake'; nag = '?'; counts.mistake++; }
@@ -896,10 +898,13 @@
       };
     }
 
-    var summary = 'Analysis' + (cancelled ? ' (partial)' : '') + ' at depth ' + depth + ': ';
-    summary += counts.inaccuracy + ' inaccurac' + (counts.inaccuracy === 1 ? 'y' : 'ies') + ', ';
-    summary += counts.mistake + ' mistake' + (counts.mistake !== 1 ? 's' : '') + ', ';
-    summary += counts.blunder + ' blunder' + (counts.blunder !== 1 ? 's' : '');
+    function fmtCounts(c) {
+      return c.inaccuracy + ' inaccurac' + (c.inaccuracy === 1 ? 'y' : 'ies') + ', ' +
+        c.mistake + ' mistake' + (c.mistake !== 1 ? 's' : '') + ', ' +
+        c.blunder + ' blunder' + (c.blunder !== 1 ? 's' : '');
+    }
+    var summary = 'Analysis' + (cancelled ? ' (partial)' : '') + ' at depth ' + depth +
+      ':\nWhite: ' + fmtCounts(wCounts) + '\nBlack: ' + fmtCounts(bCounts);
     document.getElementById('analysis-summary').textContent = summary;
 
     updateMoveList();

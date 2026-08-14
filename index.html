@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Chess Play</title>
+  <title>Cheese</title>
   <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
   <style>
     *, *::before, *::after { box-sizing: border-box; }
@@ -162,7 +162,7 @@
   <div class="setting-group">
     <label>Engine</label>
     <select id="engine-select">
-      <option value="enginec">Engine.c</option>
+      <option value="enginec">Cheese</option>
       <option value="stockfish" disabled>Stockfish (coming soon)</option>
     </select>
   </div>
@@ -620,7 +620,7 @@
 
   function generatePGN() {
     var level = document.getElementById('level').value;
-    var engineName = 'engine.js (depth ' + level + ')';
+    var engineName = 'Cheese (depth ' + level + ')';
     var d = new Date();
     var dateStr = d.getFullYear() + '.' +
       String(d.getMonth() + 1).padStart(2, '0') + '.' +
@@ -636,7 +636,7 @@
     ];
     if (startFen) headers.push(['FEN', startFen]);
     if (annotations) {
-      headers.push(['Annotator', 'engine.js (depth ' + document.getElementById('analysis-depth').value + ')']);
+      headers.push(['Annotator', 'Cheese (depth ' + document.getElementById('analysis-depth').value + ')']);
     }
 
     var pgn = '';
@@ -868,5 +868,6 @@
   initWorker();
 })();
 </script>
+<div style="margin-top:2rem;font-size:0.75rem;color:#555;text-align:center;">From the creators of <a href="https://m0hctp.github.io/translit/" style="color:#7788aa;">Translit</a></div>
 </body>
 </html>

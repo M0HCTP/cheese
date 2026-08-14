@@ -157,7 +157,7 @@
 
 <div style="position:absolute;top:0.5rem;right:1rem;font-size:0.85rem;color:#888;direction:rtl;">בס״ד</div>
 
-<h1>Chess Play</h1>
+<h1>Play Cheese</h1>
 
 <div id="settings">
   <div class="setting-group">
@@ -863,6 +863,11 @@
 
       var evalLoss = scores[i] + scores[i + 1];
       if (evalLoss < threshInac) continue;
+
+      var moverBefore = scores[i];
+      var moverAfter = -scores[i + 1];
+      if (moverBefore > 1000 && moverAfter > 1000) continue;
+      if (moverBefore < -1000 && moverAfter < -1000) continue;
 
       var playedUCI = sanToUCI(positions[i], movesSAN[i]);
       if (bestMoves[i] && playedUCI === bestMoves[i]) continue;

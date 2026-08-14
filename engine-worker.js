@@ -525,7 +525,7 @@ function fmtMove(m) {
     const from = MFROM(m), to = MTO(m), pr = MPROMO(m);
     let s = String.fromCharCode(97 + FILE0(from)) + String.fromCharCode(49 + RANK0(from)) +
             String.fromCharCode(97 + FILE0(to)) + String.fromCharCode(49 + RANK0(to));
-    if (pr) s += ' nbrq'[pr];
+    if (pr) s += '  nbrq'[pr];
     return s;
 }
 

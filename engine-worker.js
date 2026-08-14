@@ -558,6 +558,33 @@ function perft(d) {
     return nodes;
 }
 
+// === Opening Book ===
+let book = null;
+
+const EVAL_ORDER = {'+-': 6, '+/-': 5, '+=': 4, '=': 3, '=+': 2, '-/+': 1, '-+': 0};
+const EVAL_SCORE = {'+-': 300, '+/-': 150, '+=': 50, '=': 0, '=+': -50, '-/+': -150, '-+': -300};
+
+function bookKey(fen) {
+    return fen.split(' ').slice(0, 4).join(' ');
+}
+
+function bookLookup(fen) {
+    if (!book) return null;
+    const entries = book[bookKey(fen)];
+    if (!entries || entries.length === 0) return null;
+    const best = Math.max(...entries.map(e => EVAL_ORDER[e.eval] || 3));
+    const candidates = entries.filter(e => (EVAL_ORDER[e.eval] || 3) === best);
+    const pick = candidates[Math.floor(Math.random() * candidates.length)];
+    return {move: pick.move, score: EVAL_SCORE[pick.eval] || 0};
+}
+
+function loadBook() {
+    try {
+        importScripts('book.json.js');
+        if (typeof CHEESE_BOOK !== 'undefined') book = CHEESE_BOOK;
+    } catch(e) {}
+}
+
 // === Worker Message Handler ===
 zobInit();
 initTT();
@@ -565,6 +592,12 @@ initTT();
 onmessage = function(e) {
     const data = e.data;
     if (data.cmd === 'search') {
+        const bookMove = bookLookup(data.fen);
+        if (bookMove) {
+            postMessage({type: 'info', depth: 0, score: bookMove.score, nodes: 0, book: true});
+            postMessage({type: 'bestmove', move: bookMove.move, score: bookMove.score, book: true});
+            return;
+        }
         parseFen(data.fen);
         const result = search(data.depth, data.movetime || 30000);
         const move = result.move ? fmtMove(result.move) : '0000';
@@ -576,4 +609,5 @@ onmessage = function(e) {
     }
 };
 
+loadBook();
 postMessage({type: 'ready'});

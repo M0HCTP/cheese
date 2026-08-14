@@ -164,7 +164,7 @@
     <label>Engine</label>
     <select id="engine-select">
       <option value="enginec">Cheese</option>
-      <option value="stockfish" disabled>Stockfish (coming soon)</option>
+      <option value="stockfish">Stockfish 18</option>
     </select>
   </div>
   <div class="setting-group">
@@ -278,6 +278,8 @@
   var analyzing = false;
   var analysisCallback = null;
   var annotations = null;
+  var currentEngine = 'cheese';
+  var sfLastScore = 0;
 
   // === Game submission ===
   var FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLScIB8FNxMLI0C7UuDbpei8zPqLjCPi2Hj-LyYGfTewzAK-zmA/formResponse';
@@ -409,29 +411,84 @@
   }
 
   // === Engine ===
-  function initWorker() {
-    worker = new Worker('engine-worker.js');
-    worker.onmessage = function(e) {
-      var data = e.data;
-      if (data.type === 'ready') {
-        newGame();
-      } else if (data.type === 'info') {
-        if (!analyzing) showEngineInfo(data);
-      } else if (data.type === 'bestmove') {
-        if (analysisCallback) {
-          var cb = analysisCallback;
-          analysisCallback = null;
-          cb(data);
-        } else {
-          handleEngineBestMove(data);
+  var engineReady = false;
+
+  function initWorker(isSwitch) {
+    if (worker) worker.terminate();
+    engineReady = false;
+
+    if (currentEngine === 'stockfish') {
+      worker = new Worker('stockfish-18-lite-single.js');
+      sfLastScore = 0;
+      var sfReady = false;
+      worker.onmessage = function(e) {
+        var line = e.data;
+        if (typeof line !== 'string') return;
+        if (line === 'readyok' && !sfReady) {
+          sfReady = true;
+          engineReady = true;
+          if (!isSwitch) newGame();
+        } else if (line.startsWith('bestmove')) {
+          var move = line.split(' ')[1];
+          var data = {type: 'bestmove', move: move, score: sfLastScore};
+          if (analysisCallback) {
+            var cb = analysisCallback;
+            analysisCallback = null;
+            cb(data);
+          } else {
+            handleEngineBestMove(data);
+          }
+        } else if (line.startsWith('info depth') && line.indexOf(' score ') !== -1
+            && line.indexOf(' upperbound') === -1 && line.indexOf(' lowerbound') === -1) {
+          var depthMatch = line.match(/depth (\d+)/);
+          var cpMatch = line.match(/score cp (-?\d+)/);
+          var mateMatch = line.match(/score mate (-?\d+)/);
+          var nodesMatch = line.match(/ nodes (\d+)/);
+          var depth = depthMatch ? parseInt(depthMatch[1]) : 0;
+          var score = 0;
+          if (cpMatch) {
+            score = parseInt(cpMatch[1]);
+          } else if (mateMatch) {
+            var mateN = parseInt(mateMatch[1]);
+            var absN = Math.abs(mateN);
+            score = mateN > 0 ? 1000000 - 2 * absN + 1 : -(1000000 - 2 * absN + 1);
+          }
+          sfLastScore = score;
+          var nodes = nodesMatch ? parseInt(nodesMatch[1]) : 0;
+          if (!analyzing) showEngineInfo({depth: depth, score: score, nodes: nodes});
         }
-      }
-    };
-    worker.onerror = function() {
-      document.getElementById('status').textContent =
-        'Engine failed to load. Serve with: python3 -m http.server';
-      document.getElementById('status').className = 'over';
-    };
+      };
+      worker.onerror = function() {
+        document.getElementById('status').textContent = 'Stockfish failed to load';
+        document.getElementById('status').className = 'over';
+      };
+      worker.postMessage('uci');
+      worker.postMessage('isready');
+    } else {
+      worker = new Worker('engine-worker.js');
+      worker.onmessage = function(e) {
+        var data = e.data;
+        if (data.type === 'ready') {
+          engineReady = true;
+          if (!isSwitch) newGame();
+        } else if (data.type === 'info') {
+          if (!analyzing) showEngineInfo(data);
+        } else if (data.type === 'bestmove') {
+          if (analysisCallback) {
+            var cb = analysisCallback;
+            analysisCallback = null;
+            cb(data);
+          } else {
+            handleEngineBestMove(data);
+          }
+        }
+      };
+      worker.onerror = function() {
+        document.getElementById('status').textContent =
+          'Engine failed to load. Serve with: python3 -m http.server';
+        document.getElementById('status').className = 'over';
+      };
+    }
   }
 
   function engineMove() {
@@ -439,7 +496,12 @@
     engineThinking = true;
     updateStatus();
     var depth = parseInt(document.getElementById('level').value);
-    worker.postMessage({cmd: 'search', fen: game.fen(), depth: depth});
+    if (currentEngine === 'stockfish') {
+      worker.postMessage('position fen ' + game.fen());
+      worker.postMessage('go depth ' + depth);
+    } else {
+      worker.postMessage({cmd: 'search', fen: game.fen(), depth: depth});
+    }
   }
 
   function handleEngineBestMove(data) {
@@ -539,8 +601,9 @@
     }
     var nodesStr = data.nodes > 999999 ? (data.nodes / 1000000).toFixed(1) + 'M' :
                    data.nodes > 999 ? (data.nodes / 1000).toFixed(1) + 'K' : data.nodes;
-    document.getElementById('engine-info').textContent =
-      'depth ' + data.depth + '  ' + scoreStr + '  ' + nodesStr + ' nodes';
+    document.getElementById('engine-info').textContent = data.book
+      ? 'Book'
+      : 'depth ' + data.depth + '  ' + scoreStr + '  ' + nodesStr + ' nodes';
   }
 
   // === Position navigation ===
@@ -611,6 +674,7 @@
     engineThinking = false;
     analyzing = false;
     annotations = null;
+    if (currentEngine === 'stockfish') worker.postMessage('ucinewgame');
     document.getElementById('engine-info').textContent = '';
     document.getElementById('analysis-summary').textContent = '';
     document.getElementById('analysis-progress').classList.remove('visible');
@@ -633,6 +697,35 @@
     });
   });
 
+  var cheeseDepths = [
+    {v: '3', t: '3'}, {v: '4', t: '4'}, {v: '5', t: '5', sel: true},
+    {v: '6', t: '6'}, {v: '7', t: '7'}, {v: '8', t: '8'},
+    {v: '9', t: '9'}, {v: '10', t: '10'}
+  ];
+  var sfDepths = [
+    {v: '5', t: '5'}, {v: '10', t: '10'}, {v: '15', t: '15', sel: true},
+    {v: '20', t: '20'}, {v: '25', t: '25'}
+  ];
+
+  function updateAnalysisDepths() {
+    var sel = document.getElementById('analysis-depth');
+    var depths = currentEngine === 'stockfish' ? sfDepths : cheeseDepths;
+    sel.innerHTML = '';
+    for (var i = 0; i < depths.length; i++) {
+      var opt = document.createElement('option');
+      opt.value = depths[i].v;
+      opt.textContent = depths[i].t;
+      if (depths[i].sel) opt.selected = true;
+      sel.appendChild(opt);
+    }
+  }
+
+  document.getElementById('engine-select').addEventListener('change', function() {
+    currentEngine = this.value === 'stockfish' ? 'stockfish' : 'cheese';
+    updateAnalysisDepths();
+    initWorker(true);
+  });
+
   // === Save PGN ===
   function formatEval(score) {
     if (Math.abs(score) > 999000) {
@@ -652,7 +745,9 @@
 
   function generatePGN() {
     var level = document.getElementById('level').value;
-    var engineName = 'Cheese (depth ' + level + ')';
+    var engineName = currentEngine === 'stockfish'
+      ? 'Stockfish 18 (depth ' + level + ')'
+      : 'Cheese (depth ' + level + ')';
     var d = new Date();
     var dateStr = d.getFullYear() + '.' +
       String(d.getMonth() + 1).padStart(2, '0') + '.' +
@@ -668,7 +763,9 @@
     ];
     if (startFen) headers.push(['FEN', startFen]);
     if (annotations) {
-      headers.push(['Annotator', 'Cheese (depth ' + document.getElementById('analysis-depth').value + ')']);
+      var annotator = (currentEngine === 'stockfish' ? 'Stockfish 18' : 'Cheese') +
+        ' (depth ' + document.getElementById('analysis-depth').value + ')';
+      headers.push(['Annotator', annotator]);
     }
 
     var pgn = '';
@@ -792,7 +889,12 @@
 
   function searchForAnalysis(fen, depth, callback) {
     analysisCallback = callback;
-    worker.postMessage({cmd: 'search', fen: fen, depth: depth});
+    if (currentEngine === 'stockfish') {
+      worker.postMessage('position fen ' + fen);
+      worker.postMessage('go depth ' + depth);
+    } else {
+      worker.postMessage({cmd: 'search', fen: fen, depth: depth});
+    }
   }
 
   function startAnalysis() {
@@ -916,7 +1018,10 @@
   }
 
   document.getElementById('analyze-btn').addEventListener('click', startAnalysis);
-  document.getElementById('cancel-analysis').addEventListener('click', function() { analyzing = false; });
+  document.getElementById('cancel-analysis').addEventListener('click', function() {
+    analyzing = false;
+    if (currentEngine === 'stockfish') worker.postMessage('stop');
+  });
 
   // === Init ===
   document.addEventListener('visibilitychange', function() {

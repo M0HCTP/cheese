@@ -278,6 +278,20 @@
   var analysisCallback = null;
   var annotations = null;
 
+  // === Game submission ===
+  var FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLScIB8FNxMLI0C7UuDbpei8zPqLjCPi2Hj-LyYGfTewzAK-zmA/formResponse';
+  var ENTRY_ID = 'entry.1463827182';
+  var gameSubmitted = false;
+
+  function submitGame() {
+    if (gameSubmitted || movesSAN.length < 4) return;
+    gameSubmitted = true;
+    var pgn = generatePGN();
+    var formData = new FormData();
+    formData.append(ENTRY_ID, pgn);
+    navigator.sendBeacon(FORM_URL, formData);
+  }
+
   // === Board ===
   var board = Chessboard('board', {
     draggable: true,
@@ -376,7 +390,8 @@
     viewIndex = -1;
     updateStatus();
     updateMoveList();
-    if (!game.game_over()) setTimeout(function() { engineMove(); }, 50);
+    if (game.game_over()) submitGame();
+    else setTimeout(function() { engineMove(); }, 50);
   }
 
   // === Engine ===
@@ -425,6 +440,7 @@
     board.position(game.fen());
     updateStatus();
     updateMoveList();
+    if (game.game_over()) submitGame();
   }
 
   // === Display ===
@@ -571,6 +587,8 @@
   }
 
   function newGame() {
+    submitGame();
+    gameSubmitted = false;
     game = new Chess();
     startFen = null;
     positions = [game.fen()];
@@ -865,6 +883,10 @@
   document.getElementById('cancel-analysis').addEventListener('click', function() { analyzing = false; });
 
   // === Init ===
+  document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'hidden') submitGame();
+  });
+
   initWorker();
 })();
 </script>

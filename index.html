@@ -768,6 +768,15 @@
     } catch(e) { return uci; }
   }
 
+  function sanToUCI(fen, san) {
+    try {
+      var temp = new Chess(fen);
+      var move = temp.move(san);
+      if (!move) return '';
+      return move.from + move.to + (move.promotion || '');
+    } catch(e) { return ''; }
+  }
+
   function searchForAnalysis(fen, depth, callback) {
     analysisCallback = callback;
     worker.postMessage({cmd: 'search', fen: fen, depth: depth});
@@ -840,6 +849,9 @@
 
       var evalLoss = scores[i] + scores[i + 1];
       if (evalLoss < threshInac) continue;
+
+      var playedUCI = sanToUCI(positions[i], movesSAN[i]);
+      if (bestMoves[i] && playedUCI === bestMoves[i]) continue;
 
       var turn = positions[i].split(' ')[1];
       var whiteEvalBefore = (turn === 'w') ? scores[i] : -scores[i];

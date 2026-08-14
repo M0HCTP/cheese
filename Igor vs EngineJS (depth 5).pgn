@@ -1,0 +1,17 @@
+[Event "Casual Game"]
+[Site "Chess Play Web App"]
+[Date "2026.08.13"]
+[Round "1"]
+[White "Igor Yagolnitser"]
+[Black "engine.js (depth 5)"]
+[Result "1/2-1/2"]
+
+1. e4 e5 2. Nf3 Nc6 3. d4 exd4 4. Bc4 Nf6 5. e5 Ng4 6. Qe2 Bb4+ 7. c3 dxc3
+8. bxc3 Bc5 9. O-O O-O 10. h3 Nh6 11. Bxh6 gxh6 12. Nbd2 d5 13. Bb3 Be6
+14. Bc2 Qe7 15. Nb3 Bb6 16. Nbd4 Nxd4 17. cxd4 c5 18. Qd3 f5 19. exf6 Rxf6
+20. dxc5 Bxc5 21. Nd4 Rd8 22. Rae1 Bxd4 23. Qxd4 Qg7 24. Re3 Rc8 25. Bb3 Rg6
+26. Qxg7+ Kxg7 27. Rd1 Rc5 28. Rd4 Rc1+ 29. Kh2 Rf6 30. Bxd5 Bxd5 31. Rxd5
+Rxf2 32. Rd7+ Kf6 33. a3 Rb2 34. Rxh7 Kg6 35. Rh8 Ra1 36. Rg3+ Kh5 37. Rf8
+Rb5 38. Rf6 Rg5 39. Rff3 b5 40. Rb3 a6 41. Rxg5+ hxg5 42. Kg3 Kg6 43. h4
+gxh4+ 44. Kxh4 Kf5 45. Kg3 Ke5 46. Rf3 Ke4 47. Rb3 Ra2 48. Kh3 Kf4 49. Rf3+
+Ke4 50. Rb3 Kf4 51. Rf3+ Ke4 52. Rb3 1/2-1/2

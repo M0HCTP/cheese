@@ -55,7 +55,7 @@
     button:hover:not(:disabled) { background: #353565; }
     button:disabled { opacity: 0.4; cursor: default; }
 
-    #board-wrap { width: 480px; max-width: 100%; }
+    #board-wrap { width: 480px; max-width: 100%; touch-action: none; }
 
     #status {
       margin-top: 0.6rem; font-size: 0.9rem; color: #aaa;
@@ -416,6 +416,11 @@
   function initWorker(isSwitch) {
     if (worker) worker.terminate();
     engineReady = false;
+    analyzing = false;
+    analysisCallback = null;
+    document.getElementById('analysis-summary').textContent = '';
+    document.getElementById('analysis-progress').classList.remove('visible');
+    document.getElementById('analyze-btn').disabled = false;
 
     if (currentEngine === 'stockfish') {
       worker = new Worker('stockfish-18-lite-single.js');
@@ -673,6 +678,7 @@
     viewIndex = -1;
     engineThinking = false;
     analyzing = false;
+    analysisCallback = null;
     annotations = null;
     if (currentEngine === 'stockfish') worker.postMessage('ucinewgame');
     document.getElementById('engine-info').textContent = '';

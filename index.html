@@ -5,8 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Cheese</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3CclipPath id='c'%3E%3Crect width='32' height='32' rx='4'/%3E%3C/clipPath%3E%3Cg clip-path='url(%23c)'%3E%3Crect x='0' y='0' width='16' height='16' fill='%23b58863'/%3E%3Crect x='16' y='0' width='16' height='16' fill='%23f0d9b5'/%3E%3Crect x='0' y='16' width='16' height='16' fill='%23f0d9b5'/%3E%3Crect x='16' y='16' width='16' height='16' fill='%23b58863'/%3E%3Cpath d='M6 26 L16 6 L26 26 Z' fill='%23ffd54f' stroke='%23e6ac00' stroke-width='1'/%3E%3Ccircle cx='14' cy='20' r='2.2' fill='%23e6ac00' opacity='0.6'/%3E%3Ccircle cx='19' cy='22' r='1.5' fill='%23e6ac00' opacity='0.6'/%3E%3Ccircle cx='16' cy='14' r='1.3' fill='%23e6ac00' opacity='0.5'/%3E%3Cline x1='6' y1='26' x2='26' y2='26' stroke='%23e6a200' stroke-width='1.5'/%3E%3C/g%3E%3C/svg%3E">
-  <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@lichess-org/chessground@10.1.1/assets/chessground.base.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@lichess-org/chessground@10.1.1/assets/chessground.brown.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@lichess-org/chessground@10.1.1/assets/chessground.cburnett.css">
   <style>
+    .cg-wrap piece.king.white   { background-image: url('img/chesspieces/wikipedia/wK.png'); }
+    .cg-wrap piece.queen.white  { background-image: url('img/chesspieces/wikipedia/wQ.png'); }
+    .cg-wrap piece.rook.white   { background-image: url('img/chesspieces/wikipedia/wR.png'); }
+    .cg-wrap piece.bishop.white { background-image: url('img/chesspieces/wikipedia/wB.png'); }
+    .cg-wrap piece.knight.white { background-image: url('img/chesspieces/wikipedia/wN.png'); }
+    .cg-wrap piece.pawn.white   { background-image: url('img/chesspieces/wikipedia/wP.png'); }
+    .cg-wrap piece.king.black   { background-image: url('img/chesspieces/wikipedia/bK.png'); }
+    .cg-wrap piece.queen.black  { background-image: url('img/chesspieces/wikipedia/bQ.png'); }
+    .cg-wrap piece.rook.black   { background-image: url('img/chesspieces/wikipedia/bR.png'); }
+    .cg-wrap piece.bishop.black { background-image: url('img/chesspieces/wikipedia/bB.png'); }
+    .cg-wrap piece.knight.black { background-image: url('img/chesspieces/wikipedia/bN.png'); }
+    .cg-wrap piece.pawn.black   { background-image: url('img/chesspieces/wikipedia/bP.png'); }
     *, *::before, *::after { box-sizing: border-box; }
 
     body {
@@ -56,6 +70,7 @@
     button:disabled { opacity: 0.4; cursor: default; }
 
     #board-wrap { width: 480px; max-width: 100%; touch-action: none; }
+    #board { width: 100%; aspect-ratio: 1; }
 
     #status {
       margin-top: 0.6rem; font-size: 0.9rem; color: #aaa;
@@ -258,11 +273,11 @@
 
 <script data-goatcounter="https://mohctp.goatcounter.com/count"
         async src="//gc.zgo.at/count.js"></script>
-<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-<script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
 
-<script>
+<script type="module">
+import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessground@10.1.1/dist/chessground.min.js';
+
 (function() {
 
   // === State ===
@@ -311,52 +326,75 @@
   }
 
   // === Board ===
-  var board = Chessboard('board', {
-    draggable: true,
-    position: 'start',
-    orientation: 'white',
-    pieceTheme: 'img/chesspieces/wikipedia/{piece}.png',
-    onDragStart: onDragStart,
-    onDrop: onDrop,
-    onSnapEnd: onSnapEnd
-  });
-
-  function onDragStart(source, piece) {
-    if (viewIndex !== -1) return false;
-    if (game.game_over()) return false;
-    if (engineThinking || analyzing) return false;
-    if (game.turn() !== playerColor) return false;
-    if (game.turn() === 'w' && piece[0] === 'b') return false;
-    if (game.turn() === 'b' && piece[0] === 'w') return false;
+  function toDests(g) {
+    var dests = new Map();
+    var moves = g.moves({verbose: true});
+    for (var i = 0; i < moves.length; i++) {
+      var m = moves[i];
+      if (!dests.has(m.from)) dests.set(m.from, []);
+      dests.get(m.from).push(m.to);
+    }
+    return dests;
   }
 
-  function onDrop(source, target) {
-    if (source === target) return 'snapback';
-    var piece = game.get(source);
-    if (!piece) return 'snapback';
+  function turnColor(g) { return g.turn() === 'w' ? 'white' : 'black'; }
+
+  var cg = Chessground(document.getElementById('board'), {
+    fen: 'start',
+    orientation: 'white',
+    turnColor: 'white',
+    movable: {
+      free: false,
+      color: 'white',
+      dests: toDests(game),
+      showDests: true,
+      events: { after: onMove }
+    },
+    draggable: { enabled: true },
+    selectable: { enabled: true },
+    animation: { enabled: true, duration: 150 }
+  });
+
+  function updateBoard(fen, interactive) {
+    var opts = { fen: fen };
+    if (interactive) {
+      var g = new Chess(fen);
+      var tc = turnColor(g);
+      var canMove = !g.game_over() && !engineThinking && !analyzing && viewIndex === -1;
+      var myColor = playerColor === 'w' ? 'white' : 'black';
+      opts.turnColor = tc;
+      opts.movable = {
+        free: false,
+        color: canMove && tc === myColor ? myColor : undefined,
+        dests: canMove && tc === myColor ? toDests(g) : new Map(),
+        showDests: true
+      };
+      opts.check = g.in_check() ? tc : false;
+    } else {
+      opts.movable = { color: undefined, dests: new Map() };
+      opts.check = false;
+    }
+    cg.set(opts);
+  }
+
+  function onMove(orig, dest) {
+    var piece = game.get(orig);
+    if (!piece) return;
 
     var isPromotion = piece.type === 'p' &&
-      ((piece.color === 'w' && target[1] === '8') ||
-       (piece.color === 'b' && target[1] === '1'));
+      ((piece.color === 'w' && dest[1] === '8') ||
+       (piece.color === 'b' && dest[1] === '1'));
 
     if (isPromotion) {
-      var testMove = game.move({from: source, to: target, promotion: 'q'});
-      if (testMove === null) return 'snapback';
-      game.undo();
-      pendingPromo = {source: source, target: target, color: piece.color};
+      pendingPromo = {source: orig, target: dest, color: piece.color};
       showPromoDialog(piece.color);
       return;
     }
 
-    var move = game.move({from: source, to: target, promotion: 'q'});
-    if (move === null) return 'snapback';
+    var move = game.move({from: orig, to: dest, promotion: 'q'});
+    if (!move) { updateBoard(game.fen(), true); return; }
     recordMove(move);
     afterHumanMove();
-  }
-
-  function onSnapEnd() {
-    if (pendingPromo) return;
-    board.position(game.fen(), false);
   }
 
   function recordMove(move) {
@@ -390,8 +428,8 @@
     if (!pendingPromo) return;
     var move = game.move({from: pendingPromo.source, to: pendingPromo.target, promotion: piece});
     pendingPromo = null;
-    if (!move) { board.position(game.fen(), false); return; }
-    board.position(game.fen(), false);
+    if (!move) { updateBoard(game.fen(), true); return; }
+    updateBoard(game.fen(), false);
     recordMove(move);
     afterHumanMove();
   }
@@ -399,13 +437,14 @@
   document.getElementById('promo-overlay').addEventListener('click', function(e) {
     if (e.target === this) {
       this.classList.remove('visible');
-      if (pendingPromo) { pendingPromo = null; board.position(game.fen(), false); }
+      if (pendingPromo) { pendingPromo = null; updateBoard(game.fen(), true); }
     }
   });
 
   // === After human move ===
   function afterHumanMove() {
     viewIndex = -1;
+    updateBoard(game.fen(), true);
     updateStatus();
     updateMoveList();
     if (game.game_over()) submitGame();
@@ -501,6 +540,7 @@
   function engineMove() {
     if (game.game_over() || engineThinking) return;
     engineThinking = true;
+    cg.set({ movable: { color: undefined, dests: new Map() } });
     updateStatus();
     var depth = parseInt(document.getElementById('level').value);
     if (currentEngine === 'stockfish') {
@@ -520,7 +560,7 @@
     var move = game.move({from: from, to: to, promotion: promo});
     if (!move) { updateStatus(); return; }
     recordMove(move);
-    board.position(game.fen());
+    updateBoard(game.fen(), true);
     updateStatus();
     updateMoveList();
     if (game.game_over()) submitGame();
@@ -618,7 +658,7 @@
     if (posIdx < 0) posIdx = 0;
     if (posIdx > positions.length - 1) posIdx = positions.length - 1;
     viewIndex = posIdx;
-    board.position(positions[posIdx], false);
+    updateBoard(positions[posIdx], false);
     updateStatus();
     updateMoveList();
 
@@ -632,7 +672,7 @@
 
   function exitReview() {
     viewIndex = -1;
-    board.position(game.fen(), false);
+    updateBoard(game.fen(), true);
     updateStatus();
     updateMoveList();
     document.getElementById('engine-info').textContent = '';
@@ -689,15 +729,15 @@
     document.getElementById('analysis-summary').textContent = '';
     document.getElementById('analysis-progress').classList.remove('visible');
     document.getElementById('analyze-btn').disabled = false;
-    board.orientation(playerColor === 'w' ? 'white' : 'black');
-    board.position('start');
+    cg.set({ orientation: playerColor === 'w' ? 'white' : 'black' });
+    updateBoard(game.fen(), true);
     updateStatus();
     updateMoveList();
     if (playerColor === 'b') setTimeout(function() { engineMove(); }, 200);
   }
 
   document.getElementById('new-game-btn').addEventListener('click', newGame);
-  document.getElementById('flip-btn').addEventListener('click', function() { board.flip(); });
+  document.getElementById('flip-btn').addEventListener('click', function() { cg.toggleOrientation(); });
 
   document.querySelectorAll('.color-btn').forEach(function(btn) {
     btn.addEventListener('click', function() {
@@ -843,8 +883,8 @@
     viewIndex = -1;
     engineThinking = false;
     analyzing = false;
-    board.orientation(playerColor === 'w' ? 'white' : 'black');
-    board.position(game.fen(), false);
+    cg.set({ orientation: playerColor === 'w' ? 'white' : 'black' });
+    updateBoard(game.fen(), true);
     updateStatus();
     updateMoveList();
     document.getElementById('engine-info').textContent = '';

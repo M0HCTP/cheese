@@ -279,6 +279,8 @@
   var analysisCallback = null;
   var annotations = null;
   var currentEngine = 'cheese';
+  var gameEngine = 'cheese';
+  var gameLevel = '5';
   var sfLastScore = 0;
 
   // === Game submission ===
@@ -680,6 +682,8 @@
     analyzing = false;
     analysisCallback = null;
     annotations = null;
+    gameEngine = currentEngine;
+    gameLevel = document.getElementById('level').value;
     if (currentEngine === 'stockfish') worker.postMessage('ucinewgame');
     document.getElementById('engine-info').textContent = '';
     document.getElementById('analysis-summary').textContent = '';
@@ -750,18 +754,17 @@
   }
 
   function generatePGN() {
-    var level = document.getElementById('level').value;
-    var engineName = currentEngine === 'stockfish'
-      ? 'Stockfish 18 (depth ' + level + ')'
-      : 'Cheese (depth ' + level + ')';
+    var engineName = gameEngine === 'stockfish'
+      ? 'Stockfish 18 (depth ' + gameLevel + ')'
+      : 'Cheese (depth ' + gameLevel + ')';
     var d = new Date();
     var dateStr = d.getFullYear() + '.' +
       String(d.getMonth() + 1).padStart(2, '0') + '.' +
       String(d.getDate()).padStart(2, '0');
 
     var headers = [
-      ['Event', 'Chess Play'],
-      ['Site', 'Chess Play Web App'],
+      ['Event', 'Play Cheese'],
+      ['Site', 'm0hctp.github.io/cheese'],
       ['Date', dateStr],
       ['White', playerColor === 'w' ? 'Human' : engineName],
       ['Black', playerColor === 'b' ? 'Human' : engineName],

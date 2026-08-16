@@ -303,6 +303,8 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
 
 (function() {
 
+  var CHEESE_VERSION = 'Cheese 7b8f5f2';
+
   // === State ===
   var game = new Chess();
   var playerColor = 'w';
@@ -895,7 +897,8 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
       ['Date', dateStr],
       ['White', playerColor === 'w' ? 'Human' : engineName],
       ['Black', playerColor === 'b' ? 'Human' : engineName],
-      ['Result', getResult()]
+      ['Result', getResult()],
+      ['Software', CHEESE_VERSION]
     ];
     if (startFen) headers.push(['FEN', startFen]);
     if (annotations) {

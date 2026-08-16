@@ -526,6 +526,8 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
   var sfAnalysis = new Worker('stockfish-18-lite-single.js');
   var sfAnalysisReady = false;
   var sfAnalysisCallback = null;
+  var sfAnalysisLastScore = 0;
+  var sfAnalysisLastPV = '';
   sfAnalysis.onmessage = function(e) {
     var line = e.data;
     if (typeof line !== 'string') return;
@@ -535,7 +537,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
       if (sfAnalysisCallback) {
         var cb = sfAnalysisCallback;
         sfAnalysisCallback = null;
-        cb({type: 'bestmove', move: move, score: sfAnalysisLastScore});
+        cb({type: 'bestmove', move: move, score: sfAnalysisLastScore, pv: sfAnalysisLastPV});
       }
     } else if (line.startsWith('info depth') && line.indexOf(' score ') !== -1
         && line.indexOf(' upperbound') === -1 && line.indexOf(' lowerbound') === -1) {
@@ -546,9 +548,10 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
         var mN = parseInt(mateMatch[1]);
         sfAnalysisLastScore = mN > 0 ? 1000000 - 2 * Math.abs(mN) + 1 : -(1000000 - 2 * Math.abs(mN) + 1);
       }
+      var pvIdx = line.indexOf(' pv ');
+      if (pvIdx !== -1) sfAnalysisLastPV = line.substring(pvIdx + 4);
     }
   };
-  var sfAnalysisLastScore = 0;
   sfAnalysis.postMessage('uci');
   sfAnalysis.postMessage('isready');
 
@@ -920,8 +923,25 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
 
       text += movesSAN[i];
       if (annotations && annotations[i]) {
-        text += annotations[i].nag;
-        text += ' {' + annotations[i].comment + '}';
+        var ann = annotations[i];
+        text += ' ' + ann.pgnNag + ' {' + ann.comment + '} ';
+        if (ann.pvSAN && ann.pvSAN.length > 0) {
+          var pvFen = positions[i];
+          var pvTurn = pvFen.split(' ')[1];
+          var pvFm = parseInt(pvFen.split(' ')[5]) || 1;
+          text += '(';
+          for (var p = 0; p < ann.pvSAN.length; p++) {
+            if (p === 0) {
+              text += (pvTurn === 'w' ? pvFm + '. ' : pvFm + '... ') + ann.pvSAN[p];
+            } else {
+              var plyColor = (pvTurn === 'w') ? (p % 2 === 0 ? 'w' : 'b') : (p % 2 === 0 ? 'b' : 'w');
+              var mn = (pvTurn === 'w') ? pvFm + Math.floor(p / 2) : pvFm + Math.floor((p + 1) / 2);
+              if (plyColor === 'w') text += ' ' + mn + '. ' + ann.pvSAN[p];
+              else text += ' ' + ann.pvSAN[p];
+            }
+          }
+          text += ') ';
+        }
       }
       text += ' ';
 
@@ -1032,6 +1052,22 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
     } catch(e) { return uci; }
   }
 
+  function uciPVtoSAN(fen, pvStr) {
+    if (!pvStr) return [];
+    var uciMoves = pvStr.trim().split(/\s+/);
+    var temp = new Chess(fen);
+    var sans = [];
+    for (var k = 0; k < uciMoves.length; k++) {
+      var u = uciMoves[k];
+      try {
+        var m = temp.move({from: u.substring(0, 2), to: u.substring(2, 4), promotion: u.length > 4 ? u[4] : undefined});
+        if (!m) break;
+        sans.push(m.san);
+      } catch(e) { break; }
+    }
+    return sans;
+  }
+
   function sanToUCI(fen, san) {
     try {
       var temp = new Chess(fen);
@@ -1064,16 +1100,17 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
 
     var scores = [];
     var bestMoves = [];
+    var pvs = [];
     var current = 0;
     var total = positions.length;
 
     function analyzeNext() {
       if (!analyzing) {
-        finishAnalysis(scores, bestMoves, depth, threshInac, threshMistake, threshBlunder, true);
+        finishAnalysis(scores, bestMoves, pvs, depth, threshInac, threshMistake, threshBlunder, true);
         return;
       }
       if (current >= total) {
-        finishAnalysis(scores, bestMoves, depth, threshInac, threshMistake, threshBlunder, false);
+        finishAnalysis(scores, bestMoves, pvs, depth, threshInac, threshMistake, threshBlunder, false);
         return;
       }
 
@@ -1086,6 +1123,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
       if (temp.game_over()) {
         scores.push(temp.in_checkmate() ? -1000000 : 0);
         bestMoves.push(null);
+        pvs.push('');
         current++;
         setTimeout(analyzeNext, 0);
         return;
@@ -1094,6 +1132,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
       searchForAnalysis(positions[current], depth, function(result) {
         scores.push(result.score);
         bestMoves.push(result.move);
+        pvs.push(result.pv || '');
         current++;
         setTimeout(analyzeNext, 0);
       });
@@ -1102,7 +1141,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
     analyzeNext();
   }
 
-  function finishAnalysis(scores, bestMoves, depth, threshInac, threshMistake, threshBlunder, cancelled) {
+  function finishAnalysis(scores, bestMoves, pvs, depth, threshInac, threshMistake, threshBlunder, cancelled) {
     analyzing = false;
     document.getElementById('analysis-progress').classList.remove('visible');
     document.getElementById('analyze-btn').disabled = false;
@@ -1129,15 +1168,17 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
       var whiteEvalAfter = (turn === 'w') ? -scores[i + 1] : scores[i + 1];
 
       var counts = turn === 'w' ? wCounts : bCounts;
-      var severity, nag;
-      if (evalLoss >= threshBlunder) { severity = 'blunder'; nag = '??'; counts.blunder++; }
-      else if (evalLoss >= threshMistake) { severity = 'mistake'; nag = '?'; counts.mistake++; }
-      else { severity = 'inaccuracy'; nag = '?!'; counts.inaccuracy++; }
+      var severity, nag, pgnNag;
+      if (evalLoss >= threshBlunder) { severity = 'blunder'; nag = '??'; pgnNag = '$4'; counts.blunder++; }
+      else if (evalLoss >= threshMistake) { severity = 'mistake'; nag = '?'; pgnNag = '$2'; counts.mistake++; }
+      else { severity = 'inaccuracy'; nag = '?!'; pgnNag = '$6'; counts.inaccuracy++; }
 
       var bestSAN = '';
       if (bestMoves[i] && bestMoves[i] !== '0000') {
         bestSAN = uciToSAN(positions[i], bestMoves[i]);
       }
+
+      var pvSAN = pvs[i] ? uciPVtoSAN(positions[i], pvs[i]) : [];
 
       var label = severity.charAt(0).toUpperCase() + severity.slice(1);
       var tooltip = label + '. Eval: ' + formatEval(whiteEvalBefore) +
@@ -1149,7 +1190,8 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
       if (bestSAN) comment += '. Best: ' + bestSAN;
 
       annotations[i] = {
-        severity: severity, nag: nag, tooltip: tooltip, comment: comment,
+        severity: severity, nag: nag, pgnNag: pgnNag, pvSAN: pvSAN,
+        tooltip: tooltip, comment: comment,
         evalLoss: evalLoss, bestSAN: bestSAN,
         whiteEvalBefore: whiteEvalBefore, whiteEvalAfter: whiteEvalAfter
       };

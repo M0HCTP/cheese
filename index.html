@@ -971,8 +971,9 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
   }
 
   function loadPGN(text) {
+    var clean = text.replace(/(\?\?|\?!|!\?|!!|\?|!)(?=\s|{|$)/gm, '');
     var temp = new Chess();
-    if (!temp.load_pgn(text)) {
+    if (!temp.load_pgn(clean)) {
       document.getElementById('load-error').textContent = 'Could not parse PGN.';
       return false;
     }

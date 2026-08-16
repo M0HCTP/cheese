@@ -166,6 +166,30 @@
     }
     .promo-piece:hover { border-color: #a0c4ff; background: #353565; }
     .promo-piece img { width: 100%; height: 100%; }
+    #cheese-btn {
+      color: #7a5500; font-weight: bold; border: 1px solid #c89200; text-shadow: 0 1px 0 rgba(255,255,200,0.4);
+      background:
+        radial-gradient(ellipse 8px 6px at 18% 35%, #e6ac00 60%, transparent 70%),
+        radial-gradient(ellipse 6px 5px at 72% 55%, #e6ac00 60%, transparent 70%),
+        radial-gradient(ellipse 5px 4px at 45% 70%, #daa000 60%, transparent 70%),
+        radial-gradient(ellipse 4px 3px at 85% 30%, #daa000 60%, transparent 70%),
+        radial-gradient(ellipse 3px 3px at 30% 80%, #d49800 60%, transparent 70%),
+        radial-gradient(ellipse 7px 5px at 58% 25%, #e6ac00 60%, transparent 70%),
+        linear-gradient(160deg, #ffe680 0%, #ffd54f 40%, #f0c030 100%);
+    }
+    #cheese-btn:disabled {
+      background: #555; color: #999; border-color: #444; font-weight: normal; text-shadow: none;
+    }
+    #cheese-btn:not(:disabled):hover {
+      background:
+        radial-gradient(ellipse 8px 6px at 18% 35%, #f0be20 60%, transparent 70%),
+        radial-gradient(ellipse 6px 5px at 72% 55%, #f0be20 60%, transparent 70%),
+        radial-gradient(ellipse 5px 4px at 45% 70%, #e6b010 60%, transparent 70%),
+        radial-gradient(ellipse 4px 3px at 85% 30%, #e6b010 60%, transparent 70%),
+        radial-gradient(ellipse 3px 3px at 30% 80%, #daa800 60%, transparent 70%),
+        radial-gradient(ellipse 7px 5px at 58% 25%, #f0be20 60%, transparent 70%),
+        linear-gradient(160deg, #fff0a0 0%, #ffe680 40%, #f5d050 100%);
+    }
   </style>
 </head>
 <body>
@@ -178,7 +202,8 @@
   <div class="setting-group">
     <label>Engine</label>
     <select id="engine-select">
-      <option value="enginec">Cheese</option>
+      <option value="human">Human</option>
+      <option value="enginec" selected>Cheese</option>
       <option value="stockfish">Stockfish 18</option>
     </select>
   </div>
@@ -205,6 +230,7 @@
     </div>
   </div>
   <button id="new-game-btn">New Game</button>
+  <button id="cheese-btn" disabled>Cheese! (10)</button>
 </div>
 
 <div id="board-wrap">
@@ -228,14 +254,11 @@
     <div class="setting-group">
       <label>Depth</label>
       <select id="analysis-depth">
-        <option value="3">3</option>
-        <option value="4">4</option>
-        <option value="5" selected>5</option>
-        <option value="6">6</option>
-        <option value="7">7</option>
-        <option value="8">8</option>
-        <option value="9">9</option>
+        <option value="5">5</option>
         <option value="10">10</option>
+        <option value="15" selected>15</option>
+        <option value="20">20</option>
+        <option value="25">25</option>
       </select>
     </div>
     <div class="thresh-group"><span class="nag nag-inac">?!</span><input type="number" id="thresh-inac" value="50" min="10" max="500" step="5"></div>
@@ -289,13 +312,15 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
   var startFen = null;
   var positions = [];
   var movesSAN = [];
+  var movesUCI = [];
   var viewIndex = -1;
   var analyzing = false;
-  var analysisCallback = null;
   var annotations = null;
   var currentEngine = 'cheese';
   var gameEngine = 'cheese';
   var gameLevel = '5';
+  var cheeseMovesSince = 0;
+  var cheeseVariations = [];
   var sfLastScore = 0;
 
   // === Game submission ===
@@ -355,24 +380,33 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
     animation: { enabled: true, duration: 150 }
   });
 
-  function updateBoard(fen, interactive) {
-    var opts = { fen: fen };
+  function getLastMove(posIdx) {
+    if (posIdx === undefined) posIdx = movesUCI.length;
+    if (posIdx > 0 && posIdx <= movesUCI.length) return movesUCI[posIdx - 1];
+    return undefined;
+  }
+
+  function updateBoard(fen, interactive, posIdx) {
+    var opts = { fen: fen, lastMove: getLastMove(posIdx) };
     if (interactive) {
       var g = new Chess(fen);
       var tc = turnColor(g);
       var canMove = !g.game_over() && !engineThinking && !analyzing && viewIndex === -1;
       var myColor = playerColor === 'w' ? 'white' : 'black';
+      var isHuman = currentEngine === 'human';
+      var moveColor = isHuman ? tc : (tc === myColor ? myColor : undefined);
       opts.turnColor = tc;
       opts.movable = {
         free: false,
-        color: canMove && tc === myColor ? myColor : undefined,
-        dests: canMove && tc === myColor ? toDests(g) : new Map(),
+        color: canMove ? moveColor : undefined,
+        dests: canMove && moveColor ? toDests(g) : new Map(),
         showDests: true
       };
       opts.check = g.in_check() ? tc : false;
     } else {
       opts.movable = { color: undefined, dests: new Map() };
-      opts.check = false;
+      var g2 = new Chess(fen);
+      opts.check = g2.in_check() ? turnColor(g2) : false;
     }
     cg.set(opts);
   }
@@ -400,6 +434,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
   function recordMove(move) {
     positions.push(game.fen());
     movesSAN.push(move.san);
+    movesUCI.push([move.from, move.to]);
     annotations = null;
     document.getElementById('analysis-summary').textContent = '';
   }
@@ -443,13 +478,79 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
 
   // === After human move ===
   function afterHumanMove() {
+    cheeseMovesSince++;
     viewIndex = -1;
     updateBoard(game.fen(), true);
     updateStatus();
     updateMoveList();
+    updateCheeseBtn();
     if (game.game_over()) submitGame();
-    else setTimeout(function() { engineMove(); }, 50);
+    else if (currentEngine !== 'human') setTimeout(function() { engineMove(); }, 50);
   }
+
+  // === Cheese! (takeback) ===
+  function updateCheeseBtn() {
+    var btn = document.getElementById('cheese-btn');
+    var remaining = 10 - cheeseMovesSince;
+    var canCheese = remaining <= 0 && movesSAN.length >= 2 && !game.game_over() &&
+      !engineThinking && viewIndex === -1 && !analyzing && currentEngine !== 'human';
+    btn.disabled = !canCheese;
+    btn.textContent = remaining <= 0 ? 'Cheese!' : 'Cheese! (' + remaining + ')';
+  }
+
+  function doCheese() {
+    if (movesSAN.length < 2) return;
+    var idx = movesSAN.length - 2;
+    cheeseVariations.push({
+      atMoveIndex: idx,
+      retracted: [movesSAN[idx], movesSAN[idx + 1]],
+      fen: positions[idx]
+    });
+    game.undo(); game.undo();
+    movesSAN.pop(); movesSAN.pop();
+    movesUCI.pop(); movesUCI.pop();
+    positions.pop(); positions.pop();
+    cheeseMovesSince = 0;
+    annotations = null;
+    document.getElementById('analysis-summary').textContent = '';
+    viewIndex = -1;
+    updateBoard(game.fen(), true);
+    updateStatus();
+    updateMoveList();
+    updateCheeseBtn();
+  }
+
+  document.getElementById('cheese-btn').addEventListener('click', doCheese);
+
+  // === Analysis Worker (always Stockfish) ===
+  var sfAnalysis = new Worker('stockfish-18-lite-single.js');
+  var sfAnalysisReady = false;
+  var sfAnalysisCallback = null;
+  sfAnalysis.onmessage = function(e) {
+    var line = e.data;
+    if (typeof line !== 'string') return;
+    if (line === 'readyok' && !sfAnalysisReady) { sfAnalysisReady = true; return; }
+    if (line.startsWith('bestmove')) {
+      var move = line.split(' ')[1];
+      if (sfAnalysisCallback) {
+        var cb = sfAnalysisCallback;
+        sfAnalysisCallback = null;
+        cb({type: 'bestmove', move: move, score: sfAnalysisLastScore});
+      }
+    } else if (line.startsWith('info depth') && line.indexOf(' score ') !== -1
+        && line.indexOf(' upperbound') === -1 && line.indexOf(' lowerbound') === -1) {
+      var cpMatch = line.match(/score cp (-?\d+)/);
+      var mateMatch = line.match(/score mate (-?\d+)/);
+      if (cpMatch) sfAnalysisLastScore = parseInt(cpMatch[1]);
+      else if (mateMatch) {
+        var mN = parseInt(mateMatch[1]);
+        sfAnalysisLastScore = mN > 0 ? 1000000 - 2 * Math.abs(mN) + 1 : -(1000000 - 2 * Math.abs(mN) + 1);
+      }
+    }
+  };
+  var sfAnalysisLastScore = 0;
+  sfAnalysis.postMessage('uci');
+  sfAnalysis.postMessage('isready');
 
   // === Engine ===
   var engineReady = false;
@@ -457,8 +558,11 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
   function initWorker(isSwitch) {
     if (worker) worker.terminate();
     engineReady = false;
-    analyzing = false;
-    analysisCallback = null;
+    if (analyzing) {
+      analyzing = false;
+      sfAnalysisCallback = null;
+      sfAnalysis.postMessage('stop');
+    }
     document.getElementById('analysis-summary').textContent = '';
     document.getElementById('analysis-progress').classList.remove('visible');
     document.getElementById('analyze-btn').disabled = false;
@@ -476,14 +580,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
           if (!isSwitch) newGame();
         } else if (line.startsWith('bestmove')) {
           var move = line.split(' ')[1];
-          var data = {type: 'bestmove', move: move, score: sfLastScore};
-          if (analysisCallback) {
-            var cb = analysisCallback;
-            analysisCallback = null;
-            cb(data);
-          } else {
-            handleEngineBestMove(data);
-          }
+          handleEngineBestMove({type: 'bestmove', move: move, score: sfLastScore});
         } else if (line.startsWith('info depth') && line.indexOf(' score ') !== -1
             && line.indexOf(' upperbound') === -1 && line.indexOf(' lowerbound') === -1) {
           var depthMatch = line.match(/depth (\d+)/);
@@ -520,13 +617,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
         } else if (data.type === 'info') {
           if (!analyzing) showEngineInfo(data);
         } else if (data.type === 'bestmove') {
-          if (analysisCallback) {
-            var cb = analysisCallback;
-            analysisCallback = null;
-            cb(data);
-          } else {
-            handleEngineBestMove(data);
-          }
+          handleEngineBestMove(data);
         }
       };
       worker.onerror = function() {
@@ -563,6 +654,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
     updateBoard(game.fen(), true);
     updateStatus();
     updateMoveList();
+    updateCheeseBtn();
     if (game.game_over()) submitGame();
   }
 
@@ -658,7 +750,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
     if (posIdx < 0) posIdx = 0;
     if (posIdx > positions.length - 1) posIdx = positions.length - 1;
     viewIndex = posIdx;
-    updateBoard(positions[posIdx], false);
+    updateBoard(positions[posIdx], false, posIdx);
     updateStatus();
     updateMoveList();
 
@@ -702,10 +794,12 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
     var temp = startFen ? new Chess(startFen) : new Chess();
     positions = [temp.fen()];
     movesSAN = [];
+    movesUCI = [];
     for (var i = 0; i < hist.length; i++) {
       var m = temp.move({from: hist[i].from, to: hist[i].to, promotion: hist[i].promotion});
       if (!m) break;
       movesSAN.push(m.san);
+      movesUCI.push([m.from, m.to]);
       positions.push(temp.fen());
     }
   }
@@ -717,11 +811,15 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
     startFen = null;
     positions = [game.fen()];
     movesSAN = [];
+    movesUCI = [];
     viewIndex = -1;
     engineThinking = false;
     analyzing = false;
-    analysisCallback = null;
+    sfAnalysisCallback = null;
+    sfAnalysis.postMessage('stop');
     annotations = null;
+    cheeseMovesSince = 0;
+    cheeseVariations = [];
     gameEngine = currentEngine;
     gameLevel = document.getElementById('level').value;
     if (currentEngine === 'stockfish') worker.postMessage('ucinewgame');
@@ -733,7 +831,8 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
     updateBoard(game.fen(), true);
     updateStatus();
     updateMoveList();
-    if (playerColor === 'b') setTimeout(function() { engineMove(); }, 200);
+    updateCheeseBtn();
+    if (currentEngine !== 'human' && playerColor === 'b') setTimeout(function() { engineMove(); }, 200);
   }
 
   document.getElementById('new-game-btn').addEventListener('click', newGame);
@@ -747,33 +846,17 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
     });
   });
 
-  var cheeseDepths = [
-    {v: '3', t: '3'}, {v: '4', t: '4'}, {v: '5', t: '5', sel: true},
-    {v: '6', t: '6'}, {v: '7', t: '7'}, {v: '8', t: '8'},
-    {v: '9', t: '9'}, {v: '10', t: '10'}
-  ];
-  var sfDepths = [
-    {v: '5', t: '5'}, {v: '10', t: '10'}, {v: '15', t: '15', sel: true},
-    {v: '20', t: '20'}, {v: '25', t: '25'}
-  ];
-
-  function updateAnalysisDepths() {
-    var sel = document.getElementById('analysis-depth');
-    var depths = currentEngine === 'stockfish' ? sfDepths : cheeseDepths;
-    sel.innerHTML = '';
-    for (var i = 0; i < depths.length; i++) {
-      var opt = document.createElement('option');
-      opt.value = depths[i].v;
-      opt.textContent = depths[i].t;
-      if (depths[i].sel) opt.selected = true;
-      sel.appendChild(opt);
-    }
-  }
-
   document.getElementById('engine-select').addEventListener('change', function() {
-    currentEngine = this.value === 'stockfish' ? 'stockfish' : 'cheese';
-    updateAnalysisDepths();
-    initWorker(true);
+    var val = this.value;
+    currentEngine = val === 'stockfish' ? 'stockfish' : val === 'human' ? 'human' : 'cheese';
+    document.getElementById('level').disabled = (currentEngine === 'human');
+    if (currentEngine === 'human') {
+      if (worker) worker.terminate();
+      worker = null;
+      engineReady = false;
+    } else {
+      initWorker(true);
+    }
   });
 
   // === Save PGN ===
@@ -796,6 +879,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
   function generatePGN() {
     var engineName = gameEngine === 'stockfish'
       ? 'Stockfish 18 (depth ' + gameLevel + ')'
+      : gameEngine === 'human' ? 'Human'
       : 'Cheese (depth ' + gameLevel + ')';
     var d = new Date();
     var dateStr = d.getFullYear() + '.' +
@@ -812,8 +896,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
     ];
     if (startFen) headers.push(['FEN', startFen]);
     if (annotations) {
-      var annotator = (currentEngine === 'stockfish' ? 'Stockfish 18' : 'Cheese') +
-        ' (depth ' + document.getElementById('analysis-depth').value + ')';
+      var annotator = 'Stockfish 18 (depth ' + document.getElementById('analysis-depth').value + ')';
       headers.push(['Annotator', annotator]);
     }
 
@@ -822,6 +905,11 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
       pgn += '[' + headers[h][0] + ' "' + headers[h][1] + '"]\n';
     }
     pgn += '\n';
+
+    var varMap = {};
+    for (var v = 0; v < cheeseVariations.length; v++) {
+      varMap[cheeseVariations[v].atMoveIndex] = cheeseVariations[v];
+    }
 
     var text = '';
     for (var i = 0; i < movesSAN.length; i++) {
@@ -836,6 +924,19 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
         text += ' {' + annotations[i].comment + '}';
       }
       text += ' ';
+
+      if (varMap[i]) {
+        var vi = varMap[i];
+        var vTurn = vi.fen.split(' ')[1];
+        var vFm = parseInt(vi.fen.split(' ')[5]) || 1;
+        text += '(';
+        if (vTurn === 'w') {
+          text += vFm + '. ' + vi.retracted[0] + ' {Cheese!} ' + vi.retracted[1];
+        } else {
+          text += vFm + '... ' + vi.retracted[0] + ' {Cheese!} ' + (vFm + 1) + '. ' + vi.retracted[1];
+        }
+        text += ') ';
+      }
     }
     text += getResult();
     pgn += text.trim() + '\n';
@@ -937,13 +1038,9 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
   }
 
   function searchForAnalysis(fen, depth, callback) {
-    analysisCallback = callback;
-    if (currentEngine === 'stockfish') {
-      worker.postMessage('position fen ' + fen);
-      worker.postMessage('go depth ' + depth);
-    } else {
-      worker.postMessage({cmd: 'search', fen: fen, depth: depth});
-    }
+    sfAnalysisCallback = callback;
+    sfAnalysis.postMessage('position fen ' + fen);
+    sfAnalysis.postMessage('go depth ' + depth);
   }
 
   function startAnalysis() {
@@ -1069,7 +1166,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
   document.getElementById('analyze-btn').addEventListener('click', startAnalysis);
   document.getElementById('cancel-analysis').addEventListener('click', function() {
     analyzing = false;
-    if (currentEngine === 'stockfish') worker.postMessage('stop');
+    sfAnalysis.postMessage('stop');
   });
 
   // === Init ===

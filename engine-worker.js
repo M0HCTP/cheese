@@ -272,6 +272,31 @@ function legalMoves() {
     return moves;
 }
 
+function isRepetition() {
+    var limit = hply - halfmove; if (limit < 0) limit = 0;
+    for (var i = hply - 1; i >= limit; i--) if (hist[i].hash === hash) return true;
+    return false;
+}
+
+function isInsufficientMaterial() {
+    var wn = 0, wb = 0, bn = 0, bb = 0, ws = -1, bs = -1;
+    for (var s = 0; s < 128; s++) {
+        if (!ONBOARD(s)) { s += 7; continue; }
+        var p = board[s]; if (!p) continue;
+        var t = TYPE(p), c = COLOR(p);
+        if (t === 1 || t === 4 || t === 5) return false;
+        if (t === 2) { if (c === 0) wn++; else bn++; }
+        if (t === 3) { if (c === 0) { wb++; ws = S64(s); } else { bb++; bs = S64(s); } }
+    }
+    if (wn + wb + bn + bb === 0) return true;
+    if (wn + wb === 0 && bn + bb <= 1) return true;
+    if (bn + bb === 0 && wn + wb <= 1) return true;
+    if (wn === 0 && bn === 0 && wb === 1 && bb === 1) {
+        if (((ws / 8 | 0) + ws % 8 & 1) === ((bs / 8 | 0) + bs % 8 & 1)) return true;
+    }
+    return false;
+}
+
 // === Evaluation (PeSTO) ===
 const PIECE_MG = [0, 82, 337, 365, 477, 1025, 0];
 const PIECE_EG = [0, 94, 281, 297, 512, 936, 0];
@@ -402,6 +427,7 @@ function quiesce(alpha, beta) {
 // === Negamax ===
 function negamax(depth, alpha, beta, ply) {
     if (stopFlag || ((gNodes & 2047) === 0 && nowMs() > timeLimitMs)) { stopFlag = 1; return 0; }
+    if (ply > 0 && (halfmove >= 100 || isRepetition() || isInsufficientMaterial())) return 0;
     const alpha0 = alpha;
     const key = hash | 0;
     const idx = key & TTMASK;
@@ -424,7 +450,6 @@ function negamax(depth, alpha, beta, ply) {
         unmake(ps[i]);
     }
     if (mv.length === 0) return inCheck(stm) ? -MATE + ply : 0;
-    if (halfmove >= 100) return 0;
     if (depth === 0) return quiesce(alpha, beta);
     gNodes++;
     sortMoves(mv, ply, ttm);

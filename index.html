@@ -103,6 +103,16 @@
     .move.inaccuracy { color: #ffb347; border-bottom-color: #ffb347; }
     .move.mistake { color: #ff8c00; border-bottom-color: #ff8c00; }
     .move.blunder { color: #ff4444; border-bottom-color: #ff4444; }
+    .var-line {
+      display: block; margin: 2px 0 2px 12px; padding: 2px 0 2px 8px;
+      border-left: 2px solid #555; font-size: 0.85em; color: #999;
+    }
+    .var-move {
+      cursor: pointer; padding: 1px 2px; border-radius: 2px; transition: background 0.1s;
+    }
+    .var-move:hover { background: #303050; color: #ccc; }
+    .var-move.var-active { background: #353565; color: #a0c4ff; }
+    .var-num { color: #666; }
 
     /* Analysis section */
     #analysis-section {
@@ -303,7 +313,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
 
 (function() {
 
-  var CHEESE_VERSION = 'Cheese ee04a27';
+  var CHEESE_VERSION = 'Cheese f70b37b';
 
   // === State ===
   var game = new Chess();
@@ -318,6 +328,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
   var viewIndex = -1;
   var analyzing = false;
   var annotations = null;
+  var varMode = null;
   var currentEngine = 'cheese';
   var gameEngine = 'cheese';
   var gameLevel = '5';
@@ -722,12 +733,60 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
 
       if (viewIndex === i + 1) span.classList.add('active');
 
-      span.addEventListener('click', (function(idx) {
-        return function() { viewPosition(idx + 1); };
-      })(i));
+      var hasVar = annotations && annotations[i] && annotations[i].pvSAN && annotations[i].pvSAN.length > 0;
+      span.addEventListener('click', (function(idx, hv) {
+        return function() {
+          if (hv) {
+            if (varMode && varMode.moveIdx === idx) {
+              varMode = null;
+              viewPosition(idx + 1);
+            } else {
+              enterVariation(idx);
+              viewPosition(idx + 1);
+            }
+          } else {
+            viewPosition(idx + 1);
+          }
+        };
+      })(i, hasVar));
 
       el.appendChild(span);
       el.appendChild(document.createTextNode(' '));
+
+      if (varMode && varMode.moveIdx === i) {
+        var varDiv = document.createElement('div');
+        varDiv.className = 'var-line';
+        var pvFen = positions[i];
+        var pvTurn = pvFen.split(' ')[1];
+        var pvFm = parseInt(pvFen.split(' ')[5]) || 1;
+        for (var p = 0; p < varMode.pvSAN.length; p++) {
+          if (p === 0) {
+            var numSpan = document.createElement('span');
+            numSpan.className = 'var-num';
+            numSpan.textContent = (pvTurn === 'w' ? pvFm + '. ' : pvFm + '... ');
+            varDiv.appendChild(numSpan);
+          } else {
+            var plyColor = (pvTurn === 'w') ? (p % 2 === 0 ? 'w' : 'b') : (p % 2 === 0 ? 'b' : 'w');
+            var mn = (pvTurn === 'w') ? pvFm + Math.floor(p / 2) : pvFm + Math.floor((p + 1) / 2);
+            if (plyColor === 'w') {
+              var numSpan = document.createElement('span');
+              numSpan.className = 'var-num';
+              numSpan.textContent = mn + '. ';
+              varDiv.appendChild(numSpan);
+            }
+          }
+          var vmSpan = document.createElement('span');
+          vmSpan.className = 'var-move';
+          if (varMode.current === p) vmSpan.classList.add('var-active');
+          vmSpan.textContent = varMode.pvSAN[p];
+          vmSpan.addEventListener('click', (function(pvIdx) {
+            return function(e) { e.stopPropagation(); viewVarPosition(pvIdx); };
+          })(p));
+          varDiv.appendChild(vmSpan);
+          varDiv.appendChild(document.createTextNode(' '));
+        }
+        el.appendChild(varDiv);
+      }
     }
   }
 
@@ -750,10 +809,47 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
       : 'depth ' + data.depth + '  ' + scoreStr + '  ' + nodesStr + ' nodes';
   }
 
+  // === Variation mode ===
+  function enterVariation(moveIdx) {
+    if (!annotations || !annotations[moveIdx] || !annotations[moveIdx].pvSAN) return;
+    var pvSAN = annotations[moveIdx].pvSAN;
+    var baseFen = positions[moveIdx];
+    var temp = new Chess(baseFen);
+    var varPositions = [baseFen];
+    var validSAN = [];
+    for (var k = 0; k < pvSAN.length; k++) {
+      var m = temp.move(pvSAN[k]);
+      if (!m) break;
+      validSAN.push(m.san);
+      varPositions.push(temp.fen());
+    }
+    if (validSAN.length === 0) return;
+    varMode = {
+      moveIdx: moveIdx,
+      pvSAN: validSAN,
+      positions: varPositions,
+      current: -1
+    };
+  }
+
+  function viewVarPosition(pvIdx) {
+    if (!varMode || pvIdx < 0 || pvIdx >= varMode.pvSAN.length) return;
+    varMode.current = pvIdx;
+    updateBoard(varMode.positions[pvIdx + 1], false, 0);
+    updateMoveList();
+    if (annotations[varMode.moveIdx]) {
+      document.getElementById('engine-info').textContent = annotations[varMode.moveIdx].tooltip || '';
+    }
+  }
+
   // === Position navigation ===
   function viewPosition(posIdx) {
     if (posIdx < 0) posIdx = 0;
     if (posIdx > positions.length - 1) posIdx = positions.length - 1;
+    if (varMode) {
+      if (varMode.current >= 0) varMode.current = -1;
+      if (posIdx !== varMode.moveIdx + 1) varMode = null;
+    }
     viewIndex = posIdx;
     updateBoard(positions[posIdx], false, posIdx);
     updateStatus();
@@ -768,6 +864,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
   }
 
   function exitReview() {
+    varMode = null;
     viewIndex = -1;
     updateBoard(game.fen(), true);
     updateStatus();
@@ -777,7 +874,29 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
 
   document.addEventListener('keydown', function(e) {
     if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
-    if (e.key === 'ArrowLeft') {
+
+    if (varMode && varMode.current >= 0) {
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        if (varMode.current > 0) viewVarPosition(varMode.current - 1);
+        else { varMode.current = -1; viewPosition(varMode.moveIdx + 1); }
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        if (varMode.current < varMode.pvSAN.length - 1) viewVarPosition(varMode.current + 1);
+        else { varMode.current = -1; viewPosition(varMode.moveIdx + 1); }
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        varMode = null;
+        viewPosition(viewIndex);
+      }
+      return;
+    }
+
+    if (e.key === 'ArrowLeft' && e.shiftKey) {
+      e.preventDefault(); viewPosition(0);
+    } else if (e.key === 'ArrowRight' && e.shiftKey) {
+      e.preventDefault(); exitReview();
+    } else if (e.key === 'ArrowLeft') {
       e.preventDefault();
       if (viewIndex === -1) viewPosition(positions.length - 2);
       else if (viewIndex > 0) viewPosition(viewIndex - 1);
@@ -786,6 +905,15 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
       if (viewIndex === -1) return;
       if (viewIndex >= positions.length - 1) exitReview();
       else viewPosition(viewIndex + 1);
+    } else if (e.key === 'Enter' && viewIndex > 0 &&
+               annotations && annotations[viewIndex - 1] &&
+               annotations[viewIndex - 1].pvSAN && annotations[viewIndex - 1].pvSAN.length > 0) {
+      e.preventDefault();
+      if (!varMode || varMode.moveIdx !== viewIndex - 1) {
+        enterVariation(viewIndex - 1);
+        viewPosition(viewIndex);
+      }
+      viewVarPosition(0);
     } else if (e.key === 'Home') {
       e.preventDefault(); viewPosition(0);
     } else if (e.key === 'End' || e.key === 'Escape') {
@@ -993,21 +1121,196 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
     document.getElementById('load-overlay').classList.remove('visible');
   }
 
+  function tokenizePGN(text) {
+    var tokens = [];
+    var i = 0;
+    while (i < text.length) {
+      var ch = text[i];
+      if (ch === ' ' || ch === '\n' || ch === '\r' || ch === '\t') { i++; continue; }
+      if (ch === '{') {
+        var end = text.indexOf('}', i + 1);
+        if (end < 0) end = text.length;
+        tokens.push({type: 'comment', value: text.substring(i + 1, end).trim()});
+        i = end + 1;
+        continue;
+      }
+      if (ch === ';') {
+        var nl = text.indexOf('\n', i);
+        i = nl < 0 ? text.length : nl + 1;
+        continue;
+      }
+      if (ch === '(') { tokens.push({type: 'open'}); i++; continue; }
+      if (ch === ')') { tokens.push({type: 'close'}); i++; continue; }
+      if (ch === '$') {
+        var j = i + 1;
+        while (j < text.length && text[j] >= '0' && text[j] <= '9') j++;
+        tokens.push({type: 'nag', value: parseInt(text.substring(i + 1, j))});
+        i = j;
+        continue;
+      }
+      if (ch === '[') {
+        var end = text.indexOf(']', i + 1);
+        if (end < 0) end = text.length;
+        var hdr = text.substring(i + 1, end).trim();
+        var hm = hdr.match(/^(\w+)\s+"(.*)"/);
+        if (hm) tokens.push({type: 'header', key: hm[1], value: hm[2]});
+        i = end + 1;
+        continue;
+      }
+      if (ch >= '0' && ch <= '9') {
+        var rest = text.substring(i);
+        var rm = rest.match(/^(1-0|0-1|1\/2-1\/2)/);
+        if (rm) {
+          tokens.push({type: 'result', value: rm[1]});
+          i += rm[1].length;
+          continue;
+        }
+        var j = i;
+        while (j < text.length && text[j] >= '0' && text[j] <= '9') j++;
+        while (j < text.length && text[j] === '.') j++;
+        i = j;
+        continue;
+      }
+      if (ch === '*') { tokens.push({type: 'result', value: '*'}); i++; continue; }
+      var j = i;
+      while (j < text.length && ' \n\r\t(){}$;*'.indexOf(text[j]) < 0) j++;
+      var word = text.substring(i, j);
+      if (word.length > 0) {
+        var nm = word.match(/^(.+?)([\?!]+)$/);
+        if (nm && nm[1].length > 0 && /[a-hKQRBNO0-9]/.test(nm[1])) {
+          tokens.push({type: 'move', value: nm[1]});
+          var ns = nm[2];
+          var nv = ns === '??' ? 4 : ns === '?' ? 2 : ns === '?!' ? 6 :
+                   ns === '!' ? 1 : ns === '!!' ? 3 : ns === '!?' ? 5 : 0;
+          if (nv) tokens.push({type: 'nag', value: nv});
+        } else {
+          tokens.push({type: 'move', value: word});
+        }
+      }
+      i = j;
+    }
+    return tokens;
+  }
+
+  function parseEvalFromComment(s) {
+    if (!s) return 0;
+    var m = s.match(/^([\+\-]?)M(\d+)/);
+    if (m) return (m[1] === '-' ? -1 : 1) * (1000000 - parseInt(m[2]) * 2);
+    return Math.round(parseFloat(s) * 100);
+  }
+
+  function parsePGNAnnotated(text) {
+    var clean = text.replace(/[​‌‍⁠﻿]/g, '')
+                    .replace(/[   -   　]/g, ' ');
+    var tokens = tokenizePGN(clean);
+
+    var headers = {};
+    var ti = 0;
+    while (ti < tokens.length && tokens[ti].type === 'header') {
+      headers[tokens[ti].key] = tokens[ti].value;
+      ti++;
+    }
+
+    var fen = headers.FEN || null;
+    var chess = fen ? new Chess(fen) : new Chess();
+    var pos = [chess.fen()];
+    var sans = [];
+    var anns = {};
+    var mi = -1;
+    var hasAnns = false;
+
+    while (ti < tokens.length) {
+      var tok = tokens[ti];
+      if (tok.type === 'result') break;
+
+      if (tok.type === 'move') {
+        var m = chess.move(tok.value);
+        if (!m) { ti++; continue; }
+        sans.push(m.san);
+        pos.push(chess.fen());
+        mi = sans.length - 1;
+        ti++;
+        continue;
+      }
+
+      if (tok.type === 'nag' && mi >= 0) {
+        if (!anns[mi]) anns[mi] = {};
+        var nv = tok.value;
+        if (nv === 4) { anns[mi].severity = 'blunder'; anns[mi].nag = '??'; anns[mi].pgnNag = '$4'; }
+        else if (nv === 2) { anns[mi].severity = 'mistake'; anns[mi].nag = '?'; anns[mi].pgnNag = '$2'; }
+        else if (nv === 6) { anns[mi].severity = 'inaccuracy'; anns[mi].nag = '?!'; anns[mi].pgnNag = '$6'; }
+        else { anns[mi].severity = 'annotation'; anns[mi].nag = '$' + nv; anns[mi].pgnNag = '$' + nv; }
+        hasAnns = true;
+        ti++;
+        continue;
+      }
+
+      if (tok.type === 'comment' && mi >= 0) {
+        if (!anns[mi]) anns[mi] = {};
+        var ct = tok.value;
+        anns[mi].comment = ct;
+        var em = ct.match(/\(([\+\-]?\d+\.\d+|[\+\-]?M\d+)\s*→\s*([\+\-]?\d+\.\d+|[\+\-]?M\d+)\)/);
+        if (em) {
+          anns[mi].whiteEvalBefore = parseEvalFromComment(em[1]);
+          anns[mi].whiteEvalAfter = parseEvalFromComment(em[2]);
+          var lbl = ct.match(/^(\w+)/);
+          var tt = (lbl ? lbl[1] : 'Annotation') + '. Eval: ' + em[1] + ' → ' + em[2];
+          var bm = ct.match(/Best:\s*(\S+)/);
+          if (bm) { tt += '. Best: ' + bm[1]; anns[mi].bestSAN = bm[1]; }
+          anns[mi].tooltip = tt;
+        } else {
+          anns[mi].tooltip = ct;
+        }
+        hasAnns = true;
+        ti++;
+        continue;
+      }
+
+      if (tok.type === 'open') {
+        ti++;
+        var depth = 1;
+        var vc = mi >= 0 ? new Chess(pos[mi]) : null;
+        var pvSAN = [];
+        while (ti < tokens.length && depth > 0) {
+          if (tokens[ti].type === 'open') { depth++; }
+          else if (tokens[ti].type === 'close') { depth--; if (depth <= 0) break; }
+          else if (depth === 1 && tokens[ti].type === 'move' && vc) {
+            var vm = vc.move(tokens[ti].value);
+            if (vm) pvSAN.push(vm.san);
+          }
+          ti++;
+        }
+        if (ti < tokens.length && tokens[ti].type === 'close') ti++;
+        if (mi >= 0 && pvSAN.length > 0) {
+          if (!anns[mi]) anns[mi] = {};
+          anns[mi].pvSAN = pvSAN;
+          hasAnns = true;
+        }
+        continue;
+      }
+
+      ti++;
+    }
+
+    if (sans.length === 0) return null;
+
+    for (var key in headers) {
+      chess.header(key, headers[key]);
+    }
+
+    return { chess: chess, annotations: hasAnns ? anns : null, startFen: fen };
+  }
+
   function loadPGN(text) {
-    var clean = text
-      .replace(/[​‌‍⁠﻿]/g, '')
-      .replace(/[  -   　]/g, ' ')
-      .replace(/(\?\?|\?!|!\?|!!|\?|!)(?=[\s{]|$)/gm, '');
-    var temp = new Chess();
-    if (!temp.load_pgn(clean)) {
+    var parsed = parsePGNAnnotated(text);
+    if (!parsed) {
       document.getElementById('load-error').textContent = 'Could not parse PGN.';
       return false;
     }
-    game = temp;
-    var header = game.header();
-    startFen = header.FEN || null;
+    game = parsed.chess;
+    startFen = parsed.startFen;
     rebuildPositions();
-    annotations = null;
+    annotations = parsed.annotations;
     viewIndex = -1;
     engineThinking = false;
     analyzing = false;
@@ -1024,6 +1327,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
     }
     return true;
   }
+
 
   document.getElementById('load-btn').addEventListener('click', showLoadDialog);
   document.getElementById('load-cancel').addEventListener('click', hideLoadDialog);

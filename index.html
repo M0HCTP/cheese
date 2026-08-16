@@ -313,7 +313,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
 
 (function() {
 
-  var CHEESE_VERSION = 'Cheese 8b309ee';
+  var CHEESE_VERSION = 'Cheese 2438258';
 
   // === State ===
   var game = new Chess();
@@ -1302,6 +1302,10 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
   }
 
   function loadPGN(text) {
+    text = text.trim();
+    if (text.length > 1 && text[0] === '"' && text[text.length - 1] === '"') {
+      text = text.slice(1, -1).replace(/""/g, '"');
+    }
     var parsed = parsePGNAnnotated(text);
     if (!parsed) {
       document.getElementById('load-error').textContent = 'Could not parse PGN.';

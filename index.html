@@ -313,7 +313,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
 
 (function() {
 
-  var CHEESE_VERSION = 'Cheese 2438258';
+  var CHEESE_VERSION = 'Cheese fc6c8bc';
 
   // === State ===
   var game = new Chess();
@@ -1326,9 +1326,6 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
     document.getElementById('analysis-summary').textContent = '';
     hideLoadDialog();
 
-    if (!game.game_over() && game.turn() !== playerColor) {
-      setTimeout(function() { engineMove(); }, 200);
-    }
     return true;
   }
 

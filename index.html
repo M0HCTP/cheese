@@ -313,7 +313,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
 
 (function() {
 
-  var CHEESE_VERSION = 'Cheese fc6c8bc';
+  var CHEESE_VERSION = 'Cheese b58bf40';
 
   // === State ===
   var game = new Chess();
@@ -1010,10 +1010,10 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
   }
 
   function generatePGN() {
-    var engineName = gameEngine === 'stockfish'
-      ? 'Stockfish 18 (depth ' + gameLevel + ')'
-      : gameEngine === 'human' ? 'Human'
-      : 'Cheese (depth ' + gameLevel + ')';
+    var engineName = currentEngine === 'stockfish'
+      ? 'Stockfish 18 (depth ' + document.getElementById('level').value + ')'
+      : currentEngine === 'human' ? 'Human'
+      : 'Cheese (depth ' + document.getElementById('level').value + ')';
     var d = new Date();
     var dateStr = d.getFullYear() + '.' +
       String(d.getMonth() + 1).padStart(2, '0') + '.' +

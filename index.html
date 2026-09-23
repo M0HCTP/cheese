@@ -100,6 +100,7 @@
     }
     .move:hover { background: #303050; }
     .move.active { background: #353565; border-bottom-color: #a0c4ff; }
+    .move.has-cheese { border-bottom: 2px dotted #ffd54f; }
     .move.inaccuracy { color: #ffb347; border-bottom-color: #ffb347; }
     .move.mistake { color: #ff8c00; border-bottom-color: #ff8c00; }
     .move.blunder { color: #ff4444; border-bottom-color: #ff4444; }
@@ -113,6 +114,9 @@
     .var-move:hover { background: #303050; color: #ccc; }
     .var-move.var-active { background: #353565; color: #a0c4ff; }
     .var-num { color: #666; }
+    .var-line.cheese { border-left-color: #ffd54f; }
+    .var-move.var-retracted { color: #ff4444; }
+    .var-comment { color: #ffd54f; font-style: italic; }
 
     /* Analysis section */
     #analysis-section {
@@ -313,7 +317,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
 
 (function() {
 
-  var CHEESE_VERSION = 'Cheese 6711be8';
+  var CHEESE_VERSION = 'Cheese 275f7b0';
 
   // === State ===
   var game = new Chess();
@@ -738,37 +742,38 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
 
       if (annotations && annotations[i]) {
         var ann = annotations[i];
-        san += ann.nag;
-        span.classList.add(ann.severity);
-        span.title = ann.tooltip;
+        if (ann.nag) san += ann.nag;
+        if (ann.severity) span.classList.add(ann.severity);
+        if (ann.tooltip) span.title = ann.tooltip;
       }
       span.textContent = san;
 
       if (viewIndex === i + 1) span.classList.add('active');
 
-      var hasVar = annotations && annotations[i] && annotations[i].pvSAN && annotations[i].pvSAN.length > 0;
-      span.addEventListener('click', (function(idx, hv) {
+      var nVars = variationsAt(i).length;
+      if (cheeseVariations.some(function(cv) { return cv.atMoveIndex === i; })) {
+        span.classList.add('has-cheese');
+      }
+      span.addEventListener('click', (function(idx, nv) {
         return function() {
-          if (hv) {
+          if (nv > 0) {
             if (varMode && varMode.moveIdx === idx) {
-              varMode = null;
-              viewPosition(idx + 1);
+              if (varMode.which + 1 < nv) enterVariation(idx, varMode.which + 1);
+              else varMode = null;
             } else {
-              enterVariation(idx);
-              viewPosition(idx + 1);
+              enterVariation(idx, 0);
             }
-          } else {
-            viewPosition(idx + 1);
           }
+          viewPosition(idx + 1);
         };
-      })(i, hasVar));
+      })(i, nVars));
 
       el.appendChild(span);
       el.appendChild(document.createTextNode(' '));
 
       if (varMode && varMode.moveIdx === i) {
         var varDiv = document.createElement('div');
-        varDiv.className = 'var-line';
+        varDiv.className = 'var-line' + (varMode.kind === 'cheese' ? ' cheese' : '');
         var pvFen = positions[i];
         var pvTurn = pvFen.split(' ')[1];
         var pvFm = parseInt(pvFen.split(' ')[5]) || 1;
@@ -791,12 +796,21 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
           var vmSpan = document.createElement('span');
           vmSpan.className = 'var-move';
           if (varMode.current === p) vmSpan.classList.add('var-active');
+          var isRetracted = varMode.kind === 'cheese' && p === 0;
+          if (isRetracted) vmSpan.classList.add('var-retracted');
           vmSpan.textContent = varMode.pvSAN[p];
           vmSpan.addEventListener('click', (function(pvIdx) {
             return function(e) { e.stopPropagation(); viewVarPosition(pvIdx); };
           })(p));
           varDiv.appendChild(vmSpan);
           varDiv.appendChild(document.createTextNode(' '));
+          if (isRetracted) {
+            var cmt = document.createElement('span');
+            cmt.className = 'var-comment';
+            cmt.textContent = 'Cheese!';
+            varDiv.appendChild(cmt);
+            varDiv.appendChild(document.createTextNode(' '));
+          }
         }
         el.appendChild(varDiv);
       }
@@ -823,9 +837,24 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
   }
 
   // === Variation mode ===
-  function enterVariation(moveIdx) {
-    if (!annotations || !annotations[moveIdx] || !annotations[moveIdx].pvSAN) return;
-    var pvSAN = annotations[moveIdx].pvSAN;
+  function variationsAt(moveIdx) {
+    var list = [];
+    if (annotations && annotations[moveIdx] && annotations[moveIdx].pvSAN && annotations[moveIdx].pvSAN.length > 0) {
+      list.push({ kind: 'analysis', pvSAN: annotations[moveIdx].pvSAN });
+    }
+    for (var v = 0; v < cheeseVariations.length; v++) {
+      if (cheeseVariations[v].atMoveIndex === moveIdx) {
+        list.push({ kind: 'cheese', pvSAN: cheeseVariations[v].retracted });
+      }
+    }
+    return list;
+  }
+
+  function enterVariation(moveIdx, which) {
+    which = which || 0;
+    var vars = variationsAt(moveIdx);
+    if (which >= vars.length) return;
+    var pvSAN = vars[which].pvSAN;
     var baseFen = positions[moveIdx];
     var temp = new Chess(baseFen);
     var varPositions = [baseFen];
@@ -839,6 +868,8 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
     if (validSAN.length === 0) return;
     varMode = {
       moveIdx: moveIdx,
+      which: which,
+      kind: vars[which].kind,
       pvSAN: validSAN,
       positions: varPositions,
       current: -1
@@ -850,7 +881,9 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
     varMode.current = pvIdx;
     updateBoard(varMode.positions[pvIdx + 1], false, 0);
     updateMoveList();
-    if (annotations[varMode.moveIdx]) {
+    if (varMode.kind === 'cheese') {
+      document.getElementById('engine-info').textContent = 'Cheese! — retracted line';
+    } else if (annotations && annotations[varMode.moveIdx]) {
       document.getElementById('engine-info').textContent = annotations[varMode.moveIdx].tooltip || '';
     }
   }
@@ -870,7 +903,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
 
     if (annotations && posIdx > 0 && annotations[posIdx - 1]) {
       var ann = annotations[posIdx - 1];
-      document.getElementById('engine-info').textContent = ann.tooltip;
+      document.getElementById('engine-info').textContent = ann.tooltip || '';
     } else if (viewIndex >= 0) {
       document.getElementById('engine-info').textContent = '';
     }
@@ -918,9 +951,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
       if (viewIndex === -1) return;
       if (viewIndex >= positions.length - 1) exitReview();
       else viewPosition(viewIndex + 1);
-    } else if (e.key === 'Enter' && viewIndex > 0 &&
-               annotations && annotations[viewIndex - 1] &&
-               annotations[viewIndex - 1].pvSAN && annotations[viewIndex - 1].pvSAN.length > 0) {
+    } else if (e.key === 'Enter' && viewIndex > 0 && variationsAt(viewIndex - 1).length > 0) {
       e.preventDefault();
       if (!varMode || varMode.moveIdx !== viewIndex - 1) {
         enterVariation(viewIndex - 1);
@@ -1068,7 +1099,9 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
       text += movesSAN[i];
       if (annotations && annotations[i]) {
         var ann = annotations[i];
-        text += ' ' + ann.pgnNag + ' {' + ann.comment + '} ';
+        if (ann.pgnNag) text += ' ' + ann.pgnNag;
+        if (ann.comment) text += ' {' + ann.comment + '}';
+        text += ' ';
         if (ann.pvSAN && ann.pvSAN.length > 0) {
           var pvFen = positions[i];
           var pvTurn = pvFen.split(' ')[1];
@@ -1231,6 +1264,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
     var anns = {};
     var mi = -1;
     var hasAnns = false;
+    var cheeseVars = [];
 
     while (ti < tokens.length) {
       var tok = tokens[ti];
@@ -1284,9 +1318,13 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
         var depth = 1;
         var vc = mi >= 0 ? new Chess(pos[mi]) : null;
         var pvSAN = [];
+        var isCheese = false;
         while (ti < tokens.length && depth > 0) {
           if (tokens[ti].type === 'open') { depth++; }
           else if (tokens[ti].type === 'close') { depth--; if (depth <= 0) break; }
+          else if (depth === 1 && tokens[ti].type === 'comment' && tokens[ti].value === 'Cheese!') {
+            isCheese = true;
+          }
           else if (depth === 1 && tokens[ti].type === 'move' && vc) {
             var vm = vc.move(tokens[ti].value);
             if (vm) pvSAN.push(vm.san);
@@ -1294,7 +1332,9 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
           ti++;
         }
         if (ti < tokens.length && tokens[ti].type === 'close') ti++;
-        if (mi >= 0 && pvSAN.length > 0) {
+        if (mi >= 0 && isCheese && pvSAN.length >= 2) {
+          cheeseVars.push({ atMoveIndex: mi, retracted: pvSAN.slice(0, 2), fen: pos[mi] });
+        } else if (mi >= 0 && pvSAN.length > 0) {
           if (!anns[mi]) anns[mi] = {};
           anns[mi].pvSAN = pvSAN;
           hasAnns = true;
@@ -1311,7 +1351,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
       chess.header(key, headers[key]);
     }
 
-    return { chess: chess, annotations: hasAnns ? anns : null, startFen: fen };
+    return { chess: chess, annotations: hasAnns ? anns : null, startFen: fen, cheeseVariations: cheeseVars };
   }
 
   function loadPGN(text) {
@@ -1328,6 +1368,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
     startFen = parsed.startFen;
     rebuildPositions();
     annotations = parsed.annotations;
+    cheeseVariations = parsed.cheeseVariations;
     viewIndex = -1;
     engineThinking = false;
     analyzing = false;

@@ -589,6 +589,17 @@ let bookStandard = null;
 
 const EVAL_ORDER = {'+-': 6, '+/-': 5, '+=': 4, '=': 3, '=+': 2, '-/+': 1, '-+': 0};
 const EVAL_SCORE = {'+-': 300, '+/-': 150, '+=': 50, '=': 0, '=+': -50, '-/+': -150, '-+': -300};
+// Standard book stores evals as PGN NAGs; beginner book uses symbols
+const NAG_TO_EVAL = {'$10': '=', '$14': '+=', '$15': '=+', '$16': '+/-', '$17': '-/+', '$18': '+-', '$19': '-+'};
+
+function evalSymbol(e) {
+    return NAG_TO_EVAL[e] || e;
+}
+
+function evalRank(e) {
+    const r = EVAL_ORDER[evalSymbol(e)];
+    return r === undefined ? 3 : r;
+}
 
 function bookKey(fen) {
     return fen.split(' ').slice(0, 3).join(' ');
@@ -600,11 +611,11 @@ function bookLookup(fen, depth) {
     const entries = book[bookKey(fen)];
     if (!entries || entries.length === 0) return null;
     const isWhite = fen.split(' ')[1] === 'w';
-    const scores = entries.map(e => EVAL_ORDER[e.eval] || 3);
+    const scores = entries.map(e => evalRank(e.eval));
     const best = isWhite ? Math.max(...scores) : Math.min(...scores);
-    const candidates = entries.filter(e => (EVAL_ORDER[e.eval] || 3) === best);
+    const candidates = entries.filter(e => evalRank(e.eval) === best);
     const pick = candidates[Math.floor(Math.random() * candidates.length)];
-    return {move: pick.move, score: EVAL_SCORE[pick.eval] || 0};
+    return {move: pick.move, score: EVAL_SCORE[evalSymbol(pick.eval)] || 0};
 }
 
 function loadBooks() {

@@ -317,7 +317,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
 
 (function() {
 
-  var CHEESE_VERSION = 'Cheese f7eb010';
+  var CHEESE_VERSION = 'Cheese 1d263ce';
 
   // === State ===
   var game = new Chess();
@@ -546,6 +546,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
   var sfAnalysisCallback = null;
   var sfAnalysisLastScore = 0;
   var sfAnalysisLastPV = '';
+  var sfAnalysisStale = 0;  // bestmoves still owed by aborted searches
   if (sfAnalysis) {
     sfAnalysis.onmessage = function(e) {
       var line = e.data;
@@ -553,6 +554,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
       if (line === 'readyok' && !sfAnalysisReady) { sfAnalysisReady = true; return; }
       if (line.startsWith('bestmove')) {
         var move = line.split(' ')[1];
+        if (sfAnalysisStale > 0) { sfAnalysisStale--; return; }
         if (sfAnalysisCallback) {
           var cb = sfAnalysisCallback;
           sfAnalysisCallback = null;
@@ -575,20 +577,49 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
     sfAnalysis.postMessage('isready');
   }
 
-  // === Engine ===
-  var engineReady = false;
-
-  function initWorker(isSwitch) {
-    if (worker) worker.terminate();
-    engineReady = false;
-    if (analyzing) {
-      analyzing = false;
+  // Abort analysis for good (new game, load, engine switch) — unlike the
+  // Cancel button, which lets the in-flight search finish a partial result.
+  function abortAnalysis() {
+    analyzing = false;
+    if (sfAnalysisCallback) {
       sfAnalysisCallback = null;
-      if (sfAnalysis) sfAnalysis.postMessage('stop');
+      sfAnalysisStale++;
     }
-    document.getElementById('analysis-summary').textContent = '';
+    if (sfAnalysis) sfAnalysis.postMessage('stop');
     document.getElementById('analysis-progress').classList.remove('visible');
     document.getElementById('analyze-btn').disabled = false;
+  }
+
+  // === Engine ===
+  var engineReady = false;
+  var staleBestmoves = 0;  // bestmoves still owed by cancelled game searches
+
+  // Drop the search in progress; its bestmove will be ignored when it arrives
+  function cancelEngineSearch() {
+    if (!engineThinking) return;
+    engineThinking = false;
+    if (worker) {
+      staleBestmoves++;
+      if (currentEngine === 'stockfish') worker.postMessage('stop');
+    }
+  }
+
+  function stopWorker() {
+    if (worker) worker.terminate();
+    worker = null;
+    engineReady = false;
+    engineThinking = false;
+    staleBestmoves = 0;
+  }
+
+  function isEngineTurn() {
+    return currentEngine !== 'human' && !game.game_over() && game.turn() !== playerColor;
+  }
+
+  function initWorker(isSwitch) {
+    stopWorker();
+    abortAnalysis();
+    document.getElementById('analysis-summary').textContent = '';
 
     if (currentEngine === 'stockfish') {
       try { worker = new Worker('stockfish-18-lite-single.js'); } catch(e) { worker = null; }
@@ -606,6 +637,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
           sfReady = true;
           engineReady = true;
           if (!isSwitch) newGame();
+          else if (isEngineTurn()) engineMove();
         } else if (line.startsWith('bestmove')) {
           var move = line.split(' ')[1];
           handleEngineBestMove({type: 'bestmove', move: move, score: sfLastScore});
@@ -647,6 +679,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
         if (data.type === 'ready') {
           engineReady = true;
           if (!isSwitch) newGame();
+          else if (isEngineTurn()) engineMove();
         } else if (data.type === 'info') {
           if (!analyzing) showEngineInfo(data);
         } else if (data.type === 'bestmove') {
@@ -663,6 +696,11 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
 
   function engineMove() {
     if (game.game_over() || engineThinking) return;
+    if (!worker) {
+      document.getElementById('status').textContent = 'Engine needs HTTP server';
+      document.getElementById('status').className = 'over';
+      return;
+    }
     engineThinking = true;
     cg.set({ movable: { color: undefined, dests: new Map() } });
     updateStatus();
@@ -676,6 +714,8 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
   }
 
   function handleEngineBestMove(data) {
+    if (staleBestmoves > 0) { staleBestmoves--; return; }
+    if (!engineThinking) return;
     engineThinking = false;
     if (data.move === '0000' || game.game_over()) { updateStatus(); return; }
     var from = data.move.substring(0, 2);
@@ -990,20 +1030,16 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
     movesSAN = [];
     movesUCI = [];
     viewIndex = -1;
-    engineThinking = false;
-    analyzing = false;
-    sfAnalysisCallback = null;
-    if (sfAnalysis) sfAnalysis.postMessage('stop');
+    cancelEngineSearch();
+    abortAnalysis();
     annotations = null;
     cheeseMovesSince = 0;
     cheeseVariations = [];
     gameEngine = currentEngine;
     gameLevel = document.getElementById('level').value;
-    if (currentEngine === 'stockfish') worker.postMessage('ucinewgame');
+    if (currentEngine === 'stockfish' && worker) worker.postMessage('ucinewgame');
     document.getElementById('engine-info').textContent = '';
     document.getElementById('analysis-summary').textContent = '';
-    document.getElementById('analysis-progress').classList.remove('visible');
-    document.getElementById('analyze-btn').disabled = false;
     cg.set({ orientation: playerColor === 'w' ? 'white' : 'black' });
     updateBoard(game.fen(), true);
     updateStatus();
@@ -1027,13 +1063,12 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
     var val = this.value;
     currentEngine = val === 'stockfish' ? 'stockfish' : val === 'human' ? 'human' : 'cheese';
     document.getElementById('level').disabled = (currentEngine === 'human');
-    if (currentEngine === 'human') {
-      if (worker) worker.terminate();
-      worker = null;
-      engineReady = false;
-    } else {
-      initWorker(true);
-    }
+    if (currentEngine === 'human') stopWorker();
+    else initWorker(true);
+    // An interrupted search left the board locked; re-enable it
+    if (viewIndex === -1) updateBoard(game.fen(), true);
+    updateStatus();
+    updateCheeseBtn();
   });
 
   // === Save PGN ===
@@ -1370,8 +1405,8 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
     annotations = parsed.annotations;
     cheeseVariations = parsed.cheeseVariations;
     viewIndex = -1;
-    engineThinking = false;
-    analyzing = false;
+    cancelEngineSearch();
+    abortAnalysis();
     cg.set({ orientation: playerColor === 'w' ? 'white' : 'black' });
     updateBoard(game.fen(), true);
     updateStatus();

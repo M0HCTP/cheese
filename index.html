@@ -317,7 +317,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
 
 (function() {
 
-  var CHEESE_VERSION = 'Cheese 1d263ce';
+  var CHEESE_VERSION = 'Cheese 3ac4733';
 
   // === State ===
   var game = new Chess();
@@ -345,6 +345,8 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
   var ENTRY_PGN = 'entry.1463827182';
   var ENTRY_META = 'entry.1712716849';
   var gameSubmitted = false;
+  var analysisSummary = null;  // summary text of the last finished analysis
+  var analyzedPlies = 0;       // moves it covered
 
   function getClientMeta() {
     return [
@@ -452,8 +454,11 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
     positions.push(game.fen());
     movesSAN.push(move.san);
     movesUCI.push([move.from, move.to]);
-    annotations = null;
-    document.getElementById('analysis-summary').textContent = '';
+    // Earlier moves' annotations stay valid; new moves are simply unannotated
+    if (analysisSummary && analyzedPlies > 0) {
+      document.getElementById('analysis-summary').textContent =
+        analysisSummary + '\n(through move ' + moveLabel(analyzedPlies - 1) + ')';
+    }
   }
 
   // === Promotion ===
@@ -528,8 +533,9 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
     movesUCI.pop(); movesUCI.pop();
     positions.pop(); positions.pop();
     cheeseMovesSince = 0;
-    annotations = null;
-    document.getElementById('analysis-summary').textContent = '';
+    if (annotations) { delete annotations[idx]; delete annotations[idx + 1]; }
+    varMode = null;
+    clearAnalysisSummary();
     viewIndex = -1;
     updateBoard(game.fen(), true);
     updateStatus();
@@ -619,7 +625,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
   function initWorker(isSwitch) {
     stopWorker();
     abortAnalysis();
-    document.getElementById('analysis-summary').textContent = '';
+    clearAnalysisSummary();
 
     if (currentEngine === 'stockfish') {
       try { worker = new Worker('stockfish-18-lite-single.js'); } catch(e) { worker = null; }
@@ -1030,6 +1036,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
     movesSAN = [];
     movesUCI = [];
     viewIndex = -1;
+    varMode = null;
     cancelEngineSearch();
     abortAnalysis();
     annotations = null;
@@ -1039,7 +1046,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
     gameLevel = document.getElementById('level').value;
     if (currentEngine === 'stockfish' && worker) worker.postMessage('ucinewgame');
     document.getElementById('engine-info').textContent = '';
-    document.getElementById('analysis-summary').textContent = '';
+    clearAnalysisSummary();
     cg.set({ orientation: playerColor === 'w' ? 'white' : 'black' });
     updateBoard(game.fen(), true);
     updateStatus();
@@ -1399,11 +1406,15 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
       document.getElementById('load-error').textContent = 'Could not parse PGN.';
       return false;
     }
+    submitGame();  // the game being replaced, like newGame() does
+    gameSubmitted = true;  // a loaded game wasn't played here; don't report it
     game = parsed.chess;
     startFen = parsed.startFen;
     rebuildPositions();
     annotations = parsed.annotations;
     cheeseVariations = parsed.cheeseVariations;
+    varMode = null;
+    cheeseMovesSince = 0;
     viewIndex = -1;
     cancelEngineSearch();
     abortAnalysis();
@@ -1411,9 +1422,11 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
     updateBoard(game.fen(), true);
     updateStatus();
     updateMoveList();
+    updateCheeseBtn();
     document.getElementById('engine-info').textContent = '';
-    document.getElementById('analysis-summary').textContent = '';
+    clearAnalysisSummary();
     hideLoadDialog();
+    if (isEngineTurn()) setTimeout(function() { engineMove(); }, 200);
 
     return true;
   }
@@ -1497,7 +1510,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
     var threshBlunder = parseInt(document.getElementById('thresh-blunder').value);
 
     document.getElementById('analysis-progress').classList.add('visible');
-    document.getElementById('analysis-summary').textContent = '';
+    clearAnalysisSummary();
     document.getElementById('analyze-btn').disabled = true;
 
     var scores = [];
@@ -1541,6 +1554,17 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
     }
 
     analyzeNext();
+  }
+
+  function clearAnalysisSummary() {
+    analysisSummary = null;
+    document.getElementById('analysis-summary').textContent = '';
+  }
+
+  // "12." for White's move at ply index i, "12..." for Black's
+  function moveLabel(i) {
+    var parts = positions[i].split(' ');
+    return (parseInt(parts[5]) || 1) + (parts[1] === 'w' ? '.' : '...');
   }
 
   function finishAnalysis(scores, bestMoves, pvs, depth, threshInac, threshMistake, threshBlunder, cancelled) {
@@ -1607,6 +1631,8 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
     var summary = 'Analysis' + (cancelled ? ' (partial)' : '') + ' at depth ' + depth +
       ':\nWhite: ' + fmtCounts(wCounts) + '\nBlack: ' + fmtCounts(bCounts);
     document.getElementById('analysis-summary').textContent = summary;
+    analysisSummary = summary;
+    analyzedPlies = Math.min(movesSAN.length, scores.length - 1);
 
     updateMoveList();
   }

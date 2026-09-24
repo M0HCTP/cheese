@@ -317,7 +317,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
 
 (function() {
 
-  var CHEESE_VERSION = 'Cheese 3ac4733';
+  var CHEESE_VERSION = 'Cheese 925ed66';
 
   // === State ===
   var game = new Chess();
@@ -730,7 +730,8 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
     var move = game.move({from: from, to: to, promotion: promo});
     if (!move) { updateStatus(); return; }
     recordMove(move);
-    updateBoard(game.fen(), true);
+    // Don't yank the board away if the user is reviewing earlier moves
+    if (viewIndex === -1) updateBoard(game.fen(), true);
     updateStatus();
     updateMoveList();
     updateCheeseBtn();
@@ -1105,19 +1106,31 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
       String(d.getMonth() + 1).padStart(2, '0') + '.' +
       String(d.getDate()).padStart(2, '0');
 
+    // Headers of a loaded PGN win over the current session's defaults
+    var loaded = game.header() || {};
+    function hdr(key, fallback) { return loaded[key] !== undefined ? loaded[key] : fallback; }
+
+    // Board decides if it can (mate/draw); else keep a loaded resign/agreed result
+    var result = getResult() !== '*' ? getResult() : hdr('Result', '*');
+
     var headers = [
-      ['Event', 'Play Cheese'],
-      ['Site', 'm0hctp.github.io/cheese'],
-      ['Date', dateStr],
-      ['White', playerColor === 'w' ? 'Human' : engineName],
-      ['Black', playerColor === 'b' ? 'Human' : engineName],
-      ['Result', getResult()],
-      ['Software', CHEESE_VERSION]
+      ['Event', hdr('Event', 'Play Cheese')],
+      ['Site', hdr('Site', 'm0hctp.github.io/cheese')],
+      ['Date', hdr('Date', dateStr)],
+      ['White', hdr('White', playerColor === 'w' ? 'Human' : engineName)],
+      ['Black', hdr('Black', playerColor === 'b' ? 'Human' : engineName)],
+      ['Result', result],
+      ['Software', hdr('Software', CHEESE_VERSION)]
     ];
     if (startFen) headers.push(['FEN', startFen]);
     if (annotations) {
       var annotator = 'Stockfish 18 (depth ' + document.getElementById('analysis-depth').value + ')';
-      headers.push(['Annotator', annotator]);
+      // A fresh analysis replaces the loaded annotator; loaded annotations keep theirs
+      headers.push(['Annotator', analysisSummary ? annotator : hdr('Annotator', annotator)]);
+    }
+    var known = {Event: 1, Site: 1, Date: 1, White: 1, Black: 1, Result: 1, Software: 1, FEN: 1, Annotator: 1};
+    for (var lk in loaded) {
+      if (!known[lk]) headers.push([lk, loaded[lk]]);
     }
 
     var pgn = '';
@@ -1177,7 +1190,7 @@ import { Chessground } from 'https://cdn.jsdelivr.net/npm/@lichess-org/chessgrou
         text += ') ';
       }
     }
-    text += getResult();
+    text += result;
     pgn += text.trim() + '\n';
     return pgn;
   }
